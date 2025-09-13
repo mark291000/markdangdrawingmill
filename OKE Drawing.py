@@ -65,14 +65,45 @@ def calculate_confidence(number_info):
     else: score -= 5
     return max(0, min(100, score))
 
-def is_part_of_alphanumeric_string(cluster, page_chars, orientation='Horizontal', distance_threshold=5):
+def extract_alphanumeric_strings_from_page(page):
     """
-    Kiểm tra xem cluster số có phải là một phần của chuỗi chứa cả chữ và số không
+    Trích xuất tất cả các chuỗi alphanumeric từ trang PDF
+    và trả về danh sách các bbox của những chuỗi này
     """
-    if not cluster:
+    alphanumeric_bboxes = []
+    
+    # Lấy tất cả các từ từ trang
+    try:
+        words = page.extract_words(x_tolerance=2, y_tolerance=2)
+    except:
+        words = []
+    
+    for word in words:
+        word_text = word['text'].strip()
+        
+        # Kiểm tra xem từ có chứa cả chữ và số không
+        has_letter = any(c.isalpha() for c in word_text)
+        has_digit = any(c.isdigit() for c in word_text)
+        
+        if has_letter and has_digit and len(word_text) > 1:
+            alphanumeric_bboxes.append({
+                'x0': word['x0'],
+                'x1': word['x1'], 
+                'top': word['top'],
+                'bottom': word['bottom'],
+                'text': word_text
+            })
+    
+    return alphanumeric_bboxes
+
+def is_number_in_alphanumeric_string(cluster, alphanumeric_bboxes, tolerance=5):
+    """
+    Kiểm tra xem cluster số có nằm trong một chuỗi alphanumeric không
+    """
+    if not cluster or not alphanumeric_bboxes:
         return False
     
-    # Tạo bounding box của cluster
+    # Tạo bbox cho cluster số
     cluster_bbox = {
         'x0': min(c['x0'] for c in cluster),
         'x1': max(c['x1'] for c in cluster),
@@ -80,32 +111,110 @@ def is_part_of_alphanumeric_string(cluster, page_chars, orientation='Horizontal'
         'bottom': max(c['bottom'] for c in cluster)
     }
     
-    # Tìm các ký tự gần cluster
-    nearby_chars = []
-    for char in page_chars:
-        if char['text'].isalpha():  # Chỉ quan tâm đến chữ cái
-            char_distance = float('inf')
-            
-            if orientation == 'Horizontal':
-                # Kiểm tra khoảng cách theo chiều ngang và cùng hàng
-                if abs(char['top'] - cluster_bbox['top']) <= 3:  # Cùng hàng
-                    if char['x1'] < cluster_bbox['x0']:  # Chữ ở bên trái
-                        char_distance = cluster_bbox['x0'] - char['x1']
-                    elif char['x0'] > cluster_bbox['x1']:  # Chữ ở bên phải
-                        char_distance = char['x0'] - cluster_bbox['x1']
-            else:  # Vertical
-                # Kiểm tra khoảng cách theo chiều dọc và cùng cột
-                if abs(char['x0'] - cluster_bbox['x0']) <= 3:  # Cùng cột
-                    if char['bottom'] < cluster_bbox['top']:  # Chữ ở trên
-                        char_distance = cluster_bbox['top'] - char['bottom']
-                    elif char['top'] > cluster_bbox['bottom']:  # Chữ ở dưới
-                        char_distance = char['top'] - cluster_bbox['bottom']
-            
-            if char_distance <= distance_threshold:
-                nearby_chars.append((char, char_distance))
+    # Kiểm tra xem cluster có overlap với bất kỳ alphanumeric bbox nào không
+    for alpha_bbox in alphanumeric_bboxes:
+        # Kiểm tra overlap
+        x_overlap = (cluster_bbox['x0'] < alpha_bbox['x1'] + tolerance and 
+                    cluster_bbox['x1'] > alpha_bbox['x0'] - tolerance)
+        y_overlap = (cluster_bbox['top'] < alpha_bbox['bottom'] + tolerance and 
+                    cluster_bbox['bottom'] > alpha_bbox['top'] - tolerance)
+        
+        if x_overlap and y_overlap:
+            return True
     
-    # Nếu có chữ cái gần, thì đây là một phần của chuỗi alphanumeric
-    return len(nearby_chars) > 0
+    return False
+
+def build_text_from_chars(chars, tolerance_x=2, tolerance_y=3):
+    """
+    Xây dựng các từ/chuỗi từ danh sách chars
+    """
+    if not chars:
+        return []
+    
+    # Sắp xếp chars theo vị trí
+    sorted_chars = sorted(chars, key=lambda c: (round(c['top'], 1), c['x0']))
+    
+    words = []
+    current_word_chars = []
+    
+    for i, char in enumerate(sorted_chars):
+        if not current_word_chars:
+            current_word_chars = [char]
+        else:
+            last_char = current_word_chars[-1]
+            
+            # Kiểm tra xem có cùng dòng và gần nhau không
+            same_line = abs(char['top'] - last_char['top']) <= tolerance_y
+            close_x = char['x0'] - last_char['x1'] <= tolerance_x
+            
+            if same_line and close_x:
+                current_word_chars.append(char)
+            else:
+                # Kết thúc từ hiện tại và bắt đầu từ mới
+                if current_word_chars:
+                    word_text = ''.join([c['text'] for c in current_word_chars])
+                    if word_text.strip():
+                        words.append({
+                            'text': word_text.strip(),
+                            'x0': min(c['x0'] for c in current_word_chars),
+                            'x1': max(c['x1'] for c in current_word_chars),
+                            'top': min(c['top'] for c in current_word_chars),
+                            'bottom': max(c['bottom'] for c in current_word_chars),
+                            'chars': current_word_chars
+                        })
+                current_word_chars = [char]
+    
+    # Thêm từ cuối cùng
+    if current_word_chars:
+        word_text = ''.join([c['text'] for c in current_word_chars])
+        if word_text.strip():
+            words.append({
+                'text': word_text.strip(),
+                'x0': min(c['x0'] for c in current_word_chars),
+                'x1': max(c['x1'] for c in current_word_chars),
+                'top': min(c['top'] for c in current_word_chars),
+                'bottom': max(c['bottom'] for c in current_word_chars),
+                'chars': current_word_chars
+            })
+    
+    return words
+
+def is_cluster_part_of_mixed_string(cluster, page_chars):
+    """
+    Kiểm tra xem cluster số có phải là một phần của chuỗi chứa cả chữ và số không
+    Sử dụng phương pháp xây dựng từ từ chars
+    """
+    if not cluster:
+        return False
+    
+    # Xây dựng các từ từ chars
+    words = build_text_from_chars(page_chars)
+    
+    # Tạo bbox cho cluster
+    cluster_bbox = {
+        'x0': min(c['x0'] for c in cluster),
+        'x1': max(c['x1'] for c in cluster),
+        'top': min(c['top'] for c in cluster),
+        'bottom': max(c['bottom'] for c in cluster)
+    }
+    
+    # Kiểm tra từng từ
+    for word in words:
+        word_text = word['text']
+        
+        # Kiểm tra xem từ có chứa cả chữ và số không
+        has_letter = any(c.isalpha() for c in word_text)
+        has_digit = any(c.isdigit() for c in word_text)
+        
+        if has_letter and has_digit:
+            # Kiểm tra xem cluster có overlap với từ này không
+            x_overlap = (cluster_bbox['x0'] < word['x1'] and cluster_bbox['x1'] > word['x0'])
+            y_overlap = (cluster_bbox['top'] < word['bottom'] and cluster_bbox['bottom'] > word['top'])
+            
+            if x_overlap and y_overlap:
+                return True
+    
+    return False
 
 def process_cluster_for_new_logic(cluster, page, orientation, h_lines, v_lines, date_zones):
     if not cluster: return None
@@ -117,8 +226,13 @@ def process_cluster_for_new_logic(cluster, page, orientation, h_lines, v_lines, 
         bbox = {'x0': min(c['x0'] for c in cluster), 'top': min(c['top'] for c in cluster), 'x1': max(c['x1'] for c in cluster), 'bottom': max(c['bottom'] for c in cluster)}
         if is_bbox_inside_zones(bbox, date_zones): return None
         
-        # THÊM KIỂM TRA: Loại bỏ số nằm trong chuỗi có chữ
-        if is_part_of_alphanumeric_string(cluster, page.chars, orientation):
+        # KIỂM TRA 1: Sử dụng phương pháp extract_words
+        alphanumeric_bboxes = extract_alphanumeric_strings_from_page(page)
+        if is_number_in_alphanumeric_string(cluster, alphanumeric_bboxes):
+            return None
+        
+        # KIỂM TRA 2: Sử dụng phương pháp xây dựng từ chars
+        if is_cluster_part_of_mixed_string(cluster, page.chars):
             return None
         
         ink_area = get_ink_area_of_first_char(cluster, page)
@@ -176,7 +290,7 @@ def extract_all_numbers(pdf_path):
                     if result: all_numbers_data.append(result)
     return all_numbers_data
 
-# [Phần còn lại của code giữ nguyên...]
+# [Giữ nguyên tất cả các hàm còn lại...]
 def assign_ink_groups(df, tolerance=1.0):
     if df.empty or 'Ink Area' not in df.columns:
         df['Ink Area Group'] = 0
@@ -198,7 +312,6 @@ def assign_ink_groups(df, tolerance=1.0):
     df['Ink Area Group'] = df['Ink Area'].map(group_mapping)
     return df
 
-# [Giữ nguyên tất cả các hàm còn lại...]
 def find_laminate_keywords(pdf_path):
     target_keywords = ["LAM/MASKING (IF APPLICABLE)","GLUEABLE LAM/TC BLACK (IF APPLICABLE)","FLEX PAPER/PAPER", "GLUEABLE LAM", "RAW", "LAM", "GRAIN"]
     found_pairs = []
