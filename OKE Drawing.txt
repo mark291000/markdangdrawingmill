@@ -1,4 +1,4 @@
-!pip install pdfplumber
+
 import pdfplumber
 import re
 from google.colab import files
@@ -661,3 +661,4 @@ else:
         
     else:
         print("No results to display!")
+
