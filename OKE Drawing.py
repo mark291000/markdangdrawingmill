@@ -74,9 +74,8 @@ def calculate_confidence(number_info):
     else: score -= 5
     return max(0, min(100, score))
 
-def process_cluster_for_new_logic(cluster, page, h_lines, v_lines, date_zones):
+def process_cluster_for_new_logic(cluster, page, orientation, h_lines, v_lines, date_zones):
     if not cluster: return None
-    orientation = 'Horizontal' if cluster[0].get("upright", True) else 'Vertical'
     number_str = "".join([c['text'] for c in cluster])
     if orientation == 'Vertical': number_str = number_str[::-1]
     
@@ -106,18 +105,18 @@ def extract_all_numbers(pdf_path):
             for char in h_chars:
                 if char['text'].isdigit():
                     if current_cluster and last_char and (char['x0'] - last_char['x1'] > char.get('size', 8) * 0.6 or abs(char['top'] - last_char['top']) > 2):
-                        result = process_cluster_for_new_logic(current_cluster, page, h_lines, v_lines, date_zones)
+                        result = process_cluster_for_new_logic(current_cluster, page, 'Horizontal', h_lines, v_lines, date_zones)
                         if result: all_numbers_data.append(result)
                         current_cluster = [char]
                     else: current_cluster.append(char)
                 else:
                     if current_cluster:
-                        result = process_cluster_for_new_logic(current_cluster, page, h_lines, v_lines, date_zones)
+                        result = process_cluster_for_new_logic(current_cluster, page, 'Horizontal', h_lines, v_lines, date_zones)
                         if result: all_numbers_data.append(result)
                     current_cluster = []
                 last_char = char
             if current_cluster:
-                result = process_cluster_for_new_logic(current_cluster, page, h_lines, v_lines, date_zones)
+                result = process_cluster_for_new_logic(current_cluster, page, 'Horizontal', h_lines, v_lines, date_zones)
                 if result: all_numbers_data.append(result)
             v_chars_by_col = defaultdict(list)
             for char in [c for c in page.chars if not c.get("upright", True)]: v_chars_by_col[round(char['x0'], 0)].append(char)
@@ -127,18 +126,18 @@ def extract_all_numbers(pdf_path):
                 for char in col:
                     if char['text'].isdigit():
                         if current_cluster and last_char and (char['top'] - last_char['bottom'] > char.get('size', 8) * 0.6):
-                            result = process_cluster_for_new_logic(current_cluster, page, h_lines, v_lines, date_zones)
+                            result = process_cluster_for_new_logic(current_cluster, page, 'Vertical', h_lines, v_lines, date_zones)
                             if result: all_numbers_data.append(result)
                             current_cluster = [char]
                         else: current_cluster.append(char)
                     else:
                         if current_cluster:
-                            result = process_cluster_for_new_logic(current_cluster, page, h_lines, v_lines, date_zones)
+                            result = process_cluster_for_new_logic(current_cluster, page, 'Vertical', h_lines, v_lines, date_zones)
                             if result: all_numbers_data.append(result)
                         current_cluster = []
                     last_char = char
                 if current_cluster:
-                    result = process_cluster_for_new_logic(current_cluster, page, h_lines, v_lines, date_zones)
+                    result = process_cluster_for_new_logic(current_cluster, page, 'Vertical', h_lines, v_lines, date_zones)
                     if result: all_numbers_data.append(result)
     return all_numbers_data
 
@@ -147,20 +146,13 @@ def find_laminate_keywords(pdf_path):
     target_keywords = ["LAM/MASKING (IF APPLICABLE)","GLUEABLE LAM/TC BLACK (IF APPLICABLE)","FLEX PAPER/PAPER", "GLUEABLE LAM", "RAW", "LAM", "GRAIN"]
     found_pairs = []
     with pdfplumber.open(pdf_path) as pdf:
-        for page_num, page in enumerate(pdf.pages, start=1):
+        for page in pdf.pages:
             chars = page.chars
             if not chars: continue
             chars = sorted(chars, key=lambda c: (round(c["top"], 1), c["x0"]))
             full_text = "".join(c["text"] for c in chars)
             for keyword in target_keywords:
-                keyword_positions = []
-                start = 0
-                while True:
-                    pos = full_text.find(keyword, start)
-                    if pos == -1: break
-                    keyword_positions.append(pos)
-                    start = pos + 1
-                for pos in keyword_positions:
+                for pos in [m.start() for m in re.finditer(re.escape(keyword), full_text)]:
                     keyword_chars = chars[pos:pos + len(keyword)]
                     if not keyword_chars: continue
                     keyword_y = sum(c["top"] for c in keyword_chars) / len(keyword_chars)
@@ -205,7 +197,8 @@ def process_laminate_result(laminate_string):
         return parts[-1] if parts else ""
     best_cluster, best_priority = "", float('inf')
     for cluster in clusters:
-        cluster_keywords, cluster_priority = cluster.split("/"), float('inf')
+        cluster_keywords = cluster.split("/")
+        cluster_priority = float('inf')
         for keyword in cluster_keywords:
             keyword = keyword.strip()
             if keyword in target_keywords:
@@ -251,15 +244,16 @@ def extract_edgeband_and_foil_keywords(pdf_path):
     return {'Edgeband': edgeband_result, 'Foil': foil_result}
 
 def check_dimensions_status(length, width, height):
-    if (length and str(length) != '' and str(length) != 'ERROR' and
-        width and str(width) != '' and str(width) != 'ERROR' and
-        height and str(height) != '' and str(height) != 'ERROR'):
+    if (length and str(length) != '' and str(length) != 'ERROR' and width and str(width) != '' and str(width) != 'ERROR' and height and str(height) != '' and str(height) != 'ERROR'):
         return 'Done'
     return 'Recheck'
 
 # --- HÀM process_single_pdf ĐÃ ĐƯỢC VIẾT LẠI HOÀN TOÀN ---
 
 def process_single_pdf(pdf_path, original_filename):
+    """
+    Process a single PDF file using the new dimension logic and combine with other data.
+    """
     numbers = extract_all_numbers(pdf_path)
     
     dim_map = {}
@@ -381,23 +375,4 @@ def main():
                 
                 with col1:
                     csv = final_results_df.to_csv(index=False).encode('utf-8')
-                    st.download_button(label="📄 Download CSV", data=csv, file_name="pdf_extraction_results.csv", mime="text/csv")
-                
-                with col2:
-                    excel_data = to_excel(final_results_df)
-                    if excel_data:
-                        st.download_button(label="📊 Download Excel", data=excel_data, file_name="pdf_extraction_results.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-                    else:
-                        st.button("📊 Excel (Not Available)", disabled=True, help="Excel export requires xlsxwriter or openpyxl package")
-                
-            else:
-                st.error("No results to display!")
-    
-    else:
-        st.info("👆 Please upload PDF files to get started")
-    
-    st.markdown("---")
-    st.markdown("<div style='text-align: center; color: #666; font-size: 0.9em;'>PDF Data Extractor | Built with Streamlit</div>", unsafe_allow_html=True)
-
-if __name__ == "__main__":
-    main()
+                    st.download_button(label="📄 Download CSV", data=csv, file_name="pdf_extraction_results
