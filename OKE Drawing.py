@@ -70,7 +70,7 @@ def process_cluster_for_new_logic(cluster, page, orientation, h_lines, v_lines, 
     number_str = "".join([c['text'] for c in cluster])
     if orientation == 'Vertical': number_str = number_str[::-1]
     
-    if number_str.isdigit() and 10 <= int(number_str) < 3500:
+    if number_str.isdigit() and int(number_str) < 3500:
         value = int(number_str)
         bbox = {'x0': min(c['x0'] for c in cluster), 'top': min(c['top'] for c in cluster), 'x1': max(c['x1'] for c in cluster), 'bottom': max(c['bottom'] for c in cluster)}
         if is_bbox_inside_zones(bbox, date_zones): return None
@@ -415,3 +415,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
