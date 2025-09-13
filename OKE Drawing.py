@@ -2,11 +2,11 @@ import streamlit as st
 import pdfplumber
 import re
 import pandas as pd
+from collections import defaultdict
 import os
 import tempfile
 import io
 import math
-from collections import defaultdict
 
 # Set page config
 st.set_page_config(
@@ -74,10 +74,12 @@ def calculate_confidence(number_info):
     else: score -= 5
     return max(0, min(100, score))
 
-def process_cluster_for_new_logic(cluster, page, filename, orientation, h_lines, v_lines, date_zones):
+def process_cluster_for_new_logic(cluster, page, h_lines, v_lines, date_zones):
     if not cluster: return None
+    orientation = 'Horizontal' if cluster[0].get("upright", True) else 'Vertical'
     number_str = "".join([c['text'] for c in cluster])
     if orientation == 'Vertical': number_str = number_str[::-1]
+    
     if number_str.isdigit() and 10 <= int(number_str) < 3500:
         value = int(number_str)
         bbox = {'x0': min(c['x0'] for c in cluster), 'top': min(c['top'] for c in cluster), 'x1': max(c['x1'] for c in cluster), 'bottom': max(c['bottom'] for c in cluster)}
@@ -104,18 +106,18 @@ def extract_all_numbers(pdf_path):
             for char in h_chars:
                 if char['text'].isdigit():
                     if current_cluster and last_char and (char['x0'] - last_char['x1'] > char.get('size', 8) * 0.6 or abs(char['top'] - last_char['top']) > 2):
-                        result = process_cluster_for_new_logic(current_cluster, page, "", 'Horizontal', h_lines, v_lines, date_zones)
+                        result = process_cluster_for_new_logic(current_cluster, page, h_lines, v_lines, date_zones)
                         if result: all_numbers_data.append(result)
                         current_cluster = [char]
                     else: current_cluster.append(char)
                 else:
                     if current_cluster:
-                        result = process_cluster_for_new_logic(current_cluster, page, "", 'Horizontal', h_lines, v_lines, date_zones)
+                        result = process_cluster_for_new_logic(current_cluster, page, h_lines, v_lines, date_zones)
                         if result: all_numbers_data.append(result)
                     current_cluster = []
                 last_char = char
             if current_cluster:
-                result = process_cluster_for_new_logic(current_cluster, page, "", 'Horizontal', h_lines, v_lines, date_zones)
+                result = process_cluster_for_new_logic(current_cluster, page, h_lines, v_lines, date_zones)
                 if result: all_numbers_data.append(result)
             v_chars_by_col = defaultdict(list)
             for char in [c for c in page.chars if not c.get("upright", True)]: v_chars_by_col[round(char['x0'], 0)].append(char)
@@ -125,40 +127,136 @@ def extract_all_numbers(pdf_path):
                 for char in col:
                     if char['text'].isdigit():
                         if current_cluster and last_char and (char['top'] - last_char['bottom'] > char.get('size', 8) * 0.6):
-                            result = process_cluster_for_new_logic(current_cluster, page, "", 'Vertical', h_lines, v_lines, date_zones)
+                            result = process_cluster_for_new_logic(current_cluster, page, h_lines, v_lines, date_zones)
                             if result: all_numbers_data.append(result)
                             current_cluster = [char]
                         else: current_cluster.append(char)
                     else:
                         if current_cluster:
-                            result = process_cluster_for_new_logic(current_cluster, page, "", 'Vertical', h_lines, v_lines, date_zones)
+                            result = process_cluster_for_new_logic(current_cluster, page, h_lines, v_lines, date_zones)
                             if result: all_numbers_data.append(result)
                         current_cluster = []
                     last_char = char
                 if current_cluster:
-                    result = process_cluster_for_new_logic(current_cluster, page, "", 'Vertical', h_lines, v_lines, date_zones)
+                    result = process_cluster_for_new_logic(current_cluster, page, h_lines, v_lines, date_zones)
                     if result: all_numbers_data.append(result)
     return all_numbers_data
 
 # --- CÁC HÀM CŨ ĐƯỢC GIỮ LẠI ---
 def find_laminate_keywords(pdf_path):
-    # (Nội dung hàm không thay đổi)
-    ...
+    target_keywords = ["LAM/MASKING (IF APPLICABLE)","GLUEABLE LAM/TC BLACK (IF APPLICABLE)","FLEX PAPER/PAPER", "GLUEABLE LAM", "RAW", "LAM", "GRAIN"]
+    found_pairs = []
+    with pdfplumber.open(pdf_path) as pdf:
+        for page_num, page in enumerate(pdf.pages, start=1):
+            chars = page.chars
+            if not chars: continue
+            chars = sorted(chars, key=lambda c: (round(c["top"], 1), c["x0"]))
+            full_text = "".join(c["text"] for c in chars)
+            for keyword in target_keywords:
+                keyword_positions = []
+                start = 0
+                while True:
+                    pos = full_text.find(keyword, start)
+                    if pos == -1: break
+                    keyword_positions.append(pos)
+                    start = pos + 1
+                for pos in keyword_positions:
+                    keyword_chars = chars[pos:pos + len(keyword)]
+                    if not keyword_chars: continue
+                    keyword_y = sum(c["top"] for c in keyword_chars) / len(keyword_chars)
+                    keyword_x_center = sum(c["x0"] for c in keyword_chars) / len(keyword_chars)
+                    below_word = find_word_below(chars, keyword_y, keyword_x_center, target_keywords)
+                    if below_word: found_pairs.append(f"{keyword}/{below_word}")
+                    else: found_pairs.append(keyword)
+    return found_pairs
+
 def find_word_below(chars, keyword_y, keyword_x_center, target_keywords, y_tolerance=50, x_tolerance=100):
-    # (Nội dung hàm không thay đổi)
-    ...
+    chars_below = [c for c in chars if c["top"] > keyword_y + 5]
+    if not chars_below: return None
+    chars_below.sort(key=lambda c: c["top"])
+    lines = []
+    current_line, current_y = [], None
+    for char in chars_below:
+        if current_y is None or abs(char["top"] - current_y) <= 3:
+            current_line.append(char)
+            current_y = char["top"]
+        else:
+            if current_line: lines.append(current_line)
+            current_line, current_y = [char], char["top"]
+    if current_line: lines.append(current_line)
+    for line_chars in lines:
+        line_chars.sort(key=lambda c: c["x0"])
+        line_text = "".join(c["text"] for c in line_chars).strip()
+        for keyword in target_keywords:
+            if keyword in line_text:
+                line_x_center = sum(c["x0"] for c in line_chars) / len(line_chars)
+                if abs(line_x_center - keyword_x_center) <= x_tolerance: return keyword
+    return None
+
 def process_laminate_result(laminate_string):
-    # (Nội dung hàm không thay đổi)
-    ...
+    target_keywords = ["FLEX PAPER/PAPER", "GLUEABLE LAM", "LAM", "RAW", "GRAIN"]
+    if not laminate_string or laminate_string.strip() == "": return ""
+    parts = [part.strip() for part in laminate_string.split(" / ")]
+    if not parts: return ""
+    clusters = [part for part in parts if "/" in part]
+    if not clusters:
+        for keyword in target_keywords:
+            if keyword in parts: return keyword
+        return parts[-1] if parts else ""
+    best_cluster, best_priority = "", float('inf')
+    for cluster in clusters:
+        cluster_keywords, cluster_priority = cluster.split("/"), float('inf')
+        for keyword in cluster_keywords:
+            keyword = keyword.strip()
+            if keyword in target_keywords:
+                priority = target_keywords.index(keyword)
+                if priority < cluster_priority: cluster_priority = priority
+        if cluster_priority < best_priority: best_priority, best_cluster = cluster_priority, cluster
+    if not best_cluster: best_cluster = clusters[-1]
+    return best_cluster
+
 def find_profile_a(pdf_path):
-    # (Nội dung hàm không thay đổi)
-    ...
+    profile_value = ""
+    with pdfplumber.open(pdf_path) as pdf:
+        for page in pdf.pages:
+            text = page.extract_text()
+            if text:
+                match = re.search(r"PROFILE\s*:*\s*(\S+)", text, re.IGNORECASE)
+                if match: return match.group(1)
+    return profile_value
+
 def extract_edgeband_and_foil_keywords(pdf_path):
-    # (Nội dung hàm không thay đổi)
-    ...
+    edgeband_L_keywords, edgeband_S_keywords = {"EDGEBAND"}, {"DNABEGDE"}
+    foil_L_keywords, foil_S_keywords = {"FOIL"}, {"LIOF"}
+    edgeband_L_count, edgeband_S_count, foil_L_count, foil_S_count = 0, 0, 0, 0
+    with pdfplumber.open(pdf_path) as pdf:
+        for page in pdf.pages:
+            words = page.extract_words()
+            if not words: continue
+            texts = [w["text"].upper() for w in words]
+            edgeband_L_count += sum(1 for t in texts if t in edgeband_L_keywords)
+            edgeband_S_count += sum(1 for t in texts if t in edgeband_S_keywords)
+            foil_L_count += sum(1 for t in texts if t in foil_L_keywords)
+            foil_S_count += sum(1 for t in texts if t in foil_S_keywords)
+    edgeband_L_count, edgeband_S_count = min(edgeband_L_count, 2), min(edgeband_S_count, 2)
+    foil_L_count, foil_S_count = min(foil_L_count, 2), min(foil_S_count, 2)
+    edgeband_result = ""
+    if edgeband_L_count > 0 and edgeband_S_count > 0: edgeband_result = f"{edgeband_L_count}L{edgeband_S_count}S"
+    elif edgeband_L_count > 0: edgeband_result = f"{edgeband_L_count}L"
+    elif edgeband_S_count > 0: edgeband_result = f"{edgeband_S_count}S"
+    foil_result = ""
+    if foil_L_count > 0 and foil_S_count > 0: foil_result = f"{foil_L_count}L{foil_S_count}S"
+    elif foil_L_count > 0: foil_result = f"{foil_L_count}L"
+    elif foil_S_count > 0: foil_result = f"{foil_S_count}S"
+    return {'Edgeband': edgeband_result, 'Foil': foil_result}
+
 def check_dimensions_status(length, width, height):
-    # (Nội dung hàm không thay đổi)
-    ...
+    if (length and str(length) != '' and str(length) != 'ERROR' and
+        width and str(width) != '' and str(width) != 'ERROR' and
+        height and str(height) != '' and str(height) != 'ERROR'):
+        return 'Done'
+    return 'Recheck'
+
 
 # --- HÀM process_single_pdf ĐÃ ĐƯỢC VIẾT LẠI HOÀN TOÀN ---
 
@@ -166,10 +264,8 @@ def process_single_pdf(pdf_path, original_filename):
     """
     Process a single PDF file using the new dimension logic and combine with other data.
     """
-    # 1. Trích xuất tất cả các số khả thi bằng logic mới
     numbers = extract_all_numbers(pdf_path)
     
-    # 2. Xử lý để tìm ra Dài, Rộng, Cao
     dim_map = {}
     if numbers:
         full_df = pd.DataFrame(numbers)
@@ -197,14 +293,12 @@ def process_single_pdf(pdf_path, original_filename):
                 if len(sorted_dims) >= 3: dim_map[sorted_dims[1]] = 'Width (mm)'; dim_map[sorted_dims[2]] = 'Height (mm)'
                 elif len(sorted_dims) == 2: dim_map[sorted_dims[1]] = 'Width (mm)'
 
-    # 3. Trích xuất các thông tin khác (Laminate, Profile, etc.)
     laminate_pairs = find_laminate_keywords(pdf_path)
     laminate_raw_result = " / ".join(laminate_pairs) if laminate_pairs else ""
     laminate_result = process_laminate_result(laminate_raw_result) if laminate_pairs else ""
     profile_a_result = find_profile_a(pdf_path)
     edgeband_foil_results = extract_edgeband_and_foil_keywords(pdf_path)
 
-    # 4. Gom tất cả kết quả vào một dictionary duy nhất
     final_result = {
         'Drawing #': os.path.splitext(original_filename)[0],
         'Length (mm)': next((k for k, v in dim_map.items() if v == 'Length (mm)'), ''),
@@ -216,13 +310,7 @@ def process_single_pdf(pdf_path, original_filename):
         'Profile': profile_a_result
     }
     
-    # 5. Tính toán trạng thái cuối cùng
-    final_result['Status'] = check_dimensions_status(
-        final_result['Length (mm)'], 
-        final_result['Width (mm)'], 
-        final_result['Height (mm)']
-    )
-
+    final_result['Status'] = check_dimensions_status(final_result['Length (mm)'], final_result['Width (mm)'], final_result['Height (mm)'])
     return final_result
 
 
@@ -245,7 +333,7 @@ def to_excel(df):
         except ImportError: return None
     return output.getvalue()
 
-# ===== STREAMLIT UI (Không thay đổi) =====
+# ===== STREAMLIT UI =====
 def main():
     st.title("📄 PDF Data Extractor")
     st.markdown("---")
@@ -272,6 +360,7 @@ def main():
                         os.unlink(temp_path)
                     except Exception as e:
                         st.error(f"Error processing {uploaded_file.name}: {str(e)}")
+                        # DÒNG ĐÃ SỬA LỖI
                         error_result = {
                             'Drawing #': os.path.splitext(uploaded_file.name)[0],
                             'Length (mm)': 'ERROR', 'Width (mm)': 'ERROR', 'Height (mm)': 'ERROR',
@@ -299,20 +388,4 @@ def main():
                     st.download_button(label="📄 Download CSV", data=csv, file_name="pdf_extraction_results.csv", mime="text/csv")
                 
                 with col2:
-                    excel_data = to_excel(final_results_df)
-                    if excel_data:
-                        st.download_button(label="📊 Download Excel", data=excel_data, file_name="pdf_extraction_results.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-                    else:
-                        st.button("📊 Excel (Not Available)", disabled=True, help="Excel export requires xlsxwriter or openpyxl package")
-                
-            else:
-                st.error("No results to display!")
-    
-    else:
-        st.info("👆 Please upload PDF files to get started")
-    
-    st.markdown("---")
-    st.markdown("<div style='text-align: center; color: #666; font-size: 0.9em;'>PDF Data Extractor | Built with Streamlit</div>", unsafe_allow_html=True)
-
-if __name__ == "__main__":
-    main()
+                    excel_data =
