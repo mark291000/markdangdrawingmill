@@ -237,29 +237,42 @@ def find_profile_a(pdf_path):
                 if match: return match.group(1)
     return profile_value
 
+# --- HÀM TÌM FOIL VÀ EDGEBAND ĐÃ SỬA LỖI ---
 def extract_edgeband_and_foil_keywords(pdf_path):
-    edgeband_L_keywords, edgeband_S_keywords = {"EDGEBAND"}, {"DNABEGDE"}
-    foil_L_keywords, foil_S_keywords = {"FOIL"}, {"LIOF"}
-    edgeband_L_count, edgeband_S_count, foil_L_count, foil_S_count = 0, 0, 0, 0
+    """
+    Quét PDF một cách đơn giản để tìm sự hiện diện của các từ khóa liên quan.
+    """
+    edgeband_keywords = {"EDGEBAND", "DNABEGDE"}
+    foil_keywords = {"FOIL", "LIOF"}
+
+    found_edgeband = ""
+    found_foil = ""
+
     with pdfplumber.open(pdf_path) as pdf:
         for page in pdf.pages:
-            words = page.extract_words()
-            if not words: continue
-            texts = [w["text"].upper() for w in words]
-            edgeband_L_count += sum(1 for t in texts if t in edgeband_L_keywords)
-            edgeband_S_count += sum(1 for t in texts if t in edgeband_S_keywords)
-            foil_L_count += sum(1 for t in texts if t in foil_L_keywords)
-            foil_S_count += sum(1 for t in texts if t in foil_S_keywords)
-    edgeband_L_count, edgeband_S_count = min(edgeband_L_count, 2), min(foil_L_count, 2)
-    foil_L_count, foil_S_count = min(foil_L_count, 2), min(foil_S_count, 2)
-    edgeband_result, foil_result = "", ""
-    if edgeband_L_count > 0 and edgeband_S_count > 0: edgeband_result = f"{edgeband_L_count}L{edgeband_S_count}S"
-    elif edgeband_L_count > 0: edgeband_result = f"{edgeband_L_count}L"
-    elif edgeband_S_count > 0: edgeband_result = f"{edgeband_S_count}S"
-    if foil_L_count > 0 and foil_S_count > 0: foil_result = f"{foil_L_count}L{foil_S_count}S"
-    elif foil_L_count > 0: foil_result = f"{foil_L_count}L"
-    elif foil_S_count > 0: foil_result = f"{foil_S_count}S"
-    return {'Edgeband': edgeband_result, 'Foil': foil_result}
+            if found_edgeband and found_foil:
+                break # Tối ưu hóa: dừng lại khi đã tìm thấy cả hai
+            
+            words = page.extract_words(x_tolerance=2)
+            if not words:
+                continue
+
+            page_words = {w["text"].upper() for w in words}
+
+            # Ưu tiên từ khóa chuẩn trước từ khóa bị đảo ngược
+            if not found_edgeband:
+                if "EDGEBAND" in page_words:
+                    found_edgeband = "EDGEBAND"
+                elif "DNABEGDE" in page_words:
+                    found_edgeband = "EDGEBAND" # Chuẩn hóa kết quả
+
+            if not found_foil:
+                if "FOIL" in page_words:
+                    found_foil = "FOIL"
+                elif "LIOF" in page_words:
+                    found_foil = "FOIL" # Chuẩn hóa kết quả
+
+    return {'Edgeband': found_edgeband, 'Foil': found_foil}
 
 def check_dimensions_status(length, width, height):
     if (length and str(length) != '' and str(length) != 'ERROR' and width and str(width) != '' and str(width) != 'ERROR' and height and str(height) != '' and str(height) != 'ERROR'):
@@ -385,27 +398,4 @@ def main():
             if excel_data:
                 st.download_button(
                     label="📥 Tải về file Excel",
-                    data=excel_data,
-                    file_name="pdf_extraction_results.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
-            else:
-                st.button("📊 Excel (Không khả dụng)", disabled=True, help="Cần cài đặt thư viện xlsxwriter hoặc openpyxl")
-        else:
-            st.error("Không có kết quả nào để hiển thị!")
-    
-    else:
-        st.info("👆 Vui lòng tải lên một hoặc nhiều file PDF để bắt đầu.")
-    
-    st.markdown("---")
-    st.markdown(
-        """
-        <div style='text-align: center; color: #666; font-size: 0.9em;'>
-        PDF Data Extractor | Built with Streamlit
-        </div>
-        """, 
-        unsafe_allow_html=True
-    )
-
-if __name__ == "__main__":
-    main()
+                    data=
