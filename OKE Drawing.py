@@ -65,6 +65,48 @@ def calculate_confidence(number_info):
     else: score -= 5
     return max(0, min(100, score))
 
+def is_part_of_alphanumeric_string(cluster, page_chars, orientation='Horizontal', distance_threshold=5):
+    """
+    Kiểm tra xem cluster số có phải là một phần của chuỗi chứa cả chữ và số không
+    """
+    if not cluster:
+        return False
+    
+    # Tạo bounding box của cluster
+    cluster_bbox = {
+        'x0': min(c['x0'] for c in cluster),
+        'x1': max(c['x1'] for c in cluster),
+        'top': min(c['top'] for c in cluster),
+        'bottom': max(c['bottom'] for c in cluster)
+    }
+    
+    # Tìm các ký tự gần cluster
+    nearby_chars = []
+    for char in page_chars:
+        if char['text'].isalpha():  # Chỉ quan tâm đến chữ cái
+            char_distance = float('inf')
+            
+            if orientation == 'Horizontal':
+                # Kiểm tra khoảng cách theo chiều ngang và cùng hàng
+                if abs(char['top'] - cluster_bbox['top']) <= 3:  # Cùng hàng
+                    if char['x1'] < cluster_bbox['x0']:  # Chữ ở bên trái
+                        char_distance = cluster_bbox['x0'] - char['x1']
+                    elif char['x0'] > cluster_bbox['x1']:  # Chữ ở bên phải
+                        char_distance = char['x0'] - cluster_bbox['x1']
+            else:  # Vertical
+                # Kiểm tra khoảng cách theo chiều dọc và cùng cột
+                if abs(char['x0'] - cluster_bbox['x0']) <= 3:  # Cùng cột
+                    if char['bottom'] < cluster_bbox['top']:  # Chữ ở trên
+                        char_distance = cluster_bbox['top'] - char['bottom']
+                    elif char['top'] > cluster_bbox['bottom']:  # Chữ ở dưới
+                        char_distance = char['top'] - cluster_bbox['bottom']
+            
+            if char_distance <= distance_threshold:
+                nearby_chars.append((char, char_distance))
+    
+    # Nếu có chữ cái gần, thì đây là một phần của chuỗi alphanumeric
+    return len(nearby_chars) > 0
+
 def process_cluster_for_new_logic(cluster, page, orientation, h_lines, v_lines, date_zones):
     if not cluster: return None
     number_str = "".join([c['text'] for c in cluster])
@@ -74,6 +116,11 @@ def process_cluster_for_new_logic(cluster, page, orientation, h_lines, v_lines, 
         value = int(number_str)
         bbox = {'x0': min(c['x0'] for c in cluster), 'top': min(c['top'] for c in cluster), 'x1': max(c['x1'] for c in cluster), 'bottom': max(c['bottom'] for c in cluster)}
         if is_bbox_inside_zones(bbox, date_zones): return None
+        
+        # THÊM KIỂM TRA: Loại bỏ số nằm trong chuỗi có chữ
+        if is_part_of_alphanumeric_string(cluster, page.chars, orientation):
+            return None
+        
         ink_area = get_ink_area_of_first_char(cluster, page)
         if ink_area > 200: return None
         is_dim_line = is_near_dimension_line(bbox, h_lines, v_lines)
@@ -129,6 +176,7 @@ def extract_all_numbers(pdf_path):
                     if result: all_numbers_data.append(result)
     return all_numbers_data
 
+# [Phần còn lại của code giữ nguyên...]
 def assign_ink_groups(df, tolerance=1.0):
     if df.empty or 'Ink Area' not in df.columns:
         df['Ink Area Group'] = 0
@@ -150,7 +198,7 @@ def assign_ink_groups(df, tolerance=1.0):
     df['Ink Area Group'] = df['Ink Area'].map(group_mapping)
     return df
 
-# --- CÁC HÀM CŨ ĐƯỢC GIỮ LẠI ---
+# [Giữ nguyên tất cả các hàm còn lại...]
 def find_laminate_keywords(pdf_path):
     target_keywords = ["LAM/MASKING (IF APPLICABLE)","GLUEABLE LAM/TC BLACK (IF APPLICABLE)","FLEX PAPER/PAPER", "GLUEABLE LAM", "RAW", "LAM", "GRAIN"]
     found_pairs = []
@@ -227,7 +275,6 @@ def find_profile_a(pdf_path):
                 if match: return match.group(1)
     return profile_value
 
-# --- HÀM TÌM FOIL VÀ EDGEBAND ĐÃ SỬA LỖI LOGIC ---
 def extract_edgeband_and_foil_keywords(pdf_path):
     """
     Quét PDF để đếm và tạo nhãn L và S cho từng danh mục riêng biệt.
@@ -273,8 +320,6 @@ def check_dimensions_status(length, width, height):
         return 'Done'
     return 'Recheck'
 
-# --- HÀM process_single_pdf ĐÃ ĐƯỢC VIẾT LẠI HOÀN TOÀN ---
-
 def process_single_pdf(pdf_path, original_filename):
     numbers = extract_all_numbers(pdf_path)
     
@@ -309,7 +354,6 @@ def process_single_pdf(pdf_path, original_filename):
     laminate_raw_result = " / ".join(laminate_pairs) if laminate_pairs else ""
     laminate_result = process_laminate_result(laminate_raw_result) if laminate_pairs else ""
     profile_a_result = find_profile_a(pdf_path)
-    # Gọi hàm mới đã sửa lỗi
     edgeband_foil_results = extract_edgeband_and_foil_keywords(pdf_path)
 
     final_result = {
@@ -325,7 +369,6 @@ def process_single_pdf(pdf_path, original_filename):
     
     final_result['Status'] = check_dimensions_status(final_result['Length (mm)'], final_result['Width (mm)'], final_result['Height (mm)'])
     return final_result
-
 
 def save_uploaded_file(uploaded_file):
     try:
@@ -346,7 +389,6 @@ def to_excel(df):
         except ImportError: return None
     return output.getvalue()
 
-# ===== GIAO DIỆN STREAMLIT MỚI (ĐÃ SỬA LỖI VÀ HOÀN THIỆN) =====
 def main():
     st.title("📄 Trình trích xuất dữ liệu PDF")
     st.write("Tự động nhận diện kích thước (Dài, Rộng, Cao) và các thông tin khác từ bản vẽ kỹ thuật.")
@@ -415,4 +457,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
