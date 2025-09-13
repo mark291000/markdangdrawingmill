@@ -480,7 +480,7 @@ def process_single_pdf(pdf_path, original_filename):
                            key=lambda x: x.map({'Yes': 0, 'No': 1}) if x.name == 'Line' else x)
 
         # STEP 2: Find the first valid Boldness from top to bottom
-        valid_values = [12.2, 8.01, 9.01, 9.02, 6.01, 11.90, 7.93, 12.98, 8.65]
+        valid_values = [12.2, 8.01, 9.02, 6.01, 11.90, 7.93, 12.98, 8.65]
         allowed_group = None
 
         for idx, row in df.iterrows():
@@ -489,8 +489,8 @@ def process_single_pdf(pdf_path, original_filename):
 
                 if first_boldness in [12.02, 8.01]:
                     allowed_group = [12.02, 8.01]
-                elif first_boldness in [9.01, 9.02, 6.01]:
-                    allowed_group = [9.01, 9.02, 6.01]
+                elif first_boldness in [9.02, 6.01]:
+                    allowed_group = [9.02, 6.01]
                 elif first_boldness in [11.90, 7.93]:
                     allowed_group = [11.90, 7.93]
                 elif first_boldness in [12.98, 8.65]:
@@ -625,10 +625,20 @@ def save_uploaded_file(uploaded_file):
 
 
 def to_excel(df):
-    """Convert DataFrame to Excel bytes"""
+    """Convert DataFrame to Excel bytes using xlsxwriter engine"""
     output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df.to_excel(writer, index=False, sheet_name='PDF_Extraction_Results')
+    try:
+        # Try xlsxwriter first
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            df.to_excel(writer, index=False, sheet_name='PDF_Extraction_Results')
+    except ImportError:
+        try:
+            # Fallback to openpyxl if available
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                df.to_excel(writer, index=False, sheet_name='PDF_Extraction_Results')
+        except ImportError:
+            # If no Excel engines are available, return None
+            return None
     return output.getvalue()
 
 
@@ -636,15 +646,6 @@ def to_excel(df):
 def main():
     st.title("📄 PDF Data Extractor")
     st.markdown("---")
-    
-    # Introduction
-    st.markdown("""
-    ### Upload PDF files to extract:
-    - **Dimensions**: Length, Width, Height
-    - **Laminate** information
-    - **Edgeband** and **Foil** data
-    - **Profile** information
-    """)
     
     # File uploader
     uploaded_files = st.file_uploader(
@@ -723,31 +724,33 @@ def main():
                     hide_index=True
                 )
                 
-                # Download and Copy buttons
+                # Download buttons
                 st.markdown("---")
                 col1, col2 = st.columns(2)
                 
                 with col1:
-                    # Download Excel button
-                    excel_data = to_excel(final_results_df)
+                    # Download CSV button (always available)
+                    csv = final_results_df.to_csv(index=False)
                     st.download_button(
-                        label="📊 Download Excel",
-                        data=excel_data,
-                        file_name="pdf_extraction_results.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        label="📄 Download CSV",
+                        data=csv,
+                        file_name="pdf_extraction_results.csv",
+                        mime="text/csv"
                     )
                 
                 with col2:
-                    # Copy table button (shows copyable text)
-                    if st.button("📋 Copy Table Data"):
-                        # Create tab-separated text for easy copying
-                        clipboard_text = final_results_df.to_csv(sep='\t', index=False)
-                        st.text_area(
-                            "Copy this data to clipboard:",
-                            value=clipboard_text,
-                            height=200,
-                            help="Select all text and copy (Ctrl+A, Ctrl+C)"
+                    # Download Excel button (if Excel engine is available)
+                    excel_data = to_excel(final_results_df)
+                    if excel_data:
+                        st.download_button(
+                            label="📊 Download Excel",
+                            data=excel_data,
+                            file_name="pdf_extraction_results.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                         )
+                    else:
+                        st.button("📊 Excel (Not Available)", disabled=True, 
+                                help="Excel export requires xlsxwriter or openpyxl package")
                 
             else:
                 st.error("No results to display!")
