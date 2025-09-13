@@ -146,7 +146,7 @@ def find_laminate_keywords(pdf_path):
     target_keywords = ["LAM/MASKING (IF APPLICABLE)","GLUEABLE LAM/TC BLACK (IF APPLICABLE)","FLEX PAPER/PAPER", "GLUEABLE LAM", "RAW", "LAM", "GRAIN"]
     found_pairs = []
     with pdfplumber.open(pdf_path) as pdf:
-        for page in pdf.pages:
+        for page_num, page in enumerate(pdf.pages, start=1):
             chars = page.chars
             if not chars: continue
             chars = sorted(chars, key=lambda c: (round(c["top"], 1), c["x0"]))
@@ -197,8 +197,7 @@ def process_laminate_result(laminate_string):
         return parts[-1] if parts else ""
     best_cluster, best_priority = "", float('inf')
     for cluster in clusters:
-        cluster_keywords = cluster.split("/")
-        cluster_priority = float('inf')
+        cluster_keywords, cluster_priority = cluster.split("/"), float('inf')
         for keyword in cluster_keywords:
             keyword = keyword.strip()
             if keyword in target_keywords:
@@ -323,7 +322,7 @@ def to_excel(df):
         except ImportError: return None
     return output.getvalue()
 
-# ===== STREAMLIT UI =====
+# ===== STREAMLIT UI (ĐÃ SỬA LỖI VÀ HOÀN THIỆN) =====
 def main():
     st.title("📄 PDF Data Extractor")
     st.markdown("---")
@@ -350,7 +349,6 @@ def main():
                         os.unlink(temp_path)
                     except Exception as e:
                         st.error(f"Error processing {uploaded_file.name}: {str(e)}")
-                        # DÒNG ĐÃ SỬA LỖI
                         error_result = {
                             'Drawing #': os.path.splitext(uploaded_file.name)[0],
                             'Length (mm)': 'ERROR', 'Width (mm)': 'ERROR', 'Height (mm)': 'ERROR',
@@ -375,4 +373,23 @@ def main():
                 
                 with col1:
                     csv = final_results_df.to_csv(index=False).encode('utf-8')
-                    st.download_button(label="📄 Download CSV", data=csv, file_name="pdf_extraction_results
+                    st.download_button(label="📄 Download CSV", data=csv, file_name="pdf_extraction_results.csv", mime="text/csv")
+                
+                with col2:
+                    excel_data = to_excel(final_results_df)
+                    if excel_data:
+                        st.download_button(label="📊 Download Excel", data=excel_data, file_name="pdf_extraction_results.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                    else:
+                        st.button("📊 Excel (Not Available)", disabled=True, help="Excel export requires xlsxwriter or openpyxl package")
+                
+            else:
+                st.error("No results to display!")
+    
+    else:
+        st.info("👆 Please upload PDF files to get started")
+    
+    st.markdown("---")
+    st.markdown("<div style='text-align: center; color: #666; font-size: 0.9em;'>PDF Data Extractor | Built with Streamlit</div>", unsafe_allow_html=True)
+
+if __name__ == "__main__":
+    main()
