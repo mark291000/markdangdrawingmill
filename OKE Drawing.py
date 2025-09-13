@@ -257,13 +257,9 @@ def check_dimensions_status(length, width, height):
         return 'Done'
     return 'Recheck'
 
-
 # --- HÀM process_single_pdf ĐÃ ĐƯỢC VIẾT LẠI HOÀN TOÀN ---
 
 def process_single_pdf(pdf_path, original_filename):
-    """
-    Process a single PDF file using the new dimension logic and combine with other data.
-    """
     numbers = extract_all_numbers(pdf_path)
     
     dim_map = {}
@@ -284,7 +280,7 @@ def process_single_pdf(pdf_path, original_filename):
             if len(unique_numbers_in_group) >= 1: dim_map[unique_numbers_in_group[-1]] = 'Length (mm)'
             if len(unique_numbers_in_group) >= 2: dim_map[unique_numbers_in_group[0]] = 'Height (mm)'
             if len(unique_numbers_in_group) >= 3: dim_map[unique_numbers_in_group[1]] = 'Width (mm)'
-        else: # Logic dự phòng
+        else:
             high_confidence_dims = full_df[full_df['Confidence (%)'] > 50]
             if not high_confidence_dims.empty:
                 top_dims = high_confidence_dims.drop_duplicates(subset=['Number']).head(3)
@@ -388,4 +384,20 @@ def main():
                     st.download_button(label="📄 Download CSV", data=csv, file_name="pdf_extraction_results.csv", mime="text/csv")
                 
                 with col2:
-                    excel_data =
+                    excel_data = to_excel(final_results_df)
+                    if excel_data:
+                        st.download_button(label="📊 Download Excel", data=excel_data, file_name="pdf_extraction_results.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                    else:
+                        st.button("📊 Excel (Not Available)", disabled=True, help="Excel export requires xlsxwriter or openpyxl package")
+                
+            else:
+                st.error("No results to display!")
+    
+    else:
+        st.info("👆 Please upload PDF files to get started")
+    
+    st.markdown("---")
+    st.markdown("<div style='text-align: center; color: #666; font-size: 0.9em;'>PDF Data Extractor | Built with Streamlit</div>", unsafe_allow_html=True)
+
+if __name__ == "__main__":
+    main()
