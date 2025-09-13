@@ -15,7 +15,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# --- CÁC HÀM PHỤ TRỢ MỚI ---
+# --- CÁC HÀM PHỤ TRỢ MỚI CHO LOGIC KÍCH THƯỚC ---
 
 def find_dimension_lines(lines, tolerance=2):
     horizontal_lines = [line for line in lines if abs(line['y0'] - line['y1']) <= tolerance]
@@ -160,11 +160,119 @@ def assign_ink_groups(df, tolerance=1.0):
     df['Ink Area Group'] = df['Ink Area'].map(group_mapping)
     return df
 
-# --- CÁC HÀM CŨ ĐƯỢC GIỮ LẠI ---
-# (Các hàm find_laminate_keywords, find_word_below, process_laminate_result, find_profile_a, extract_edgeband_and_foil_keywords, check_dimensions_status không thay đổi)
+# --- CÁC HÀM CŨ ĐƯỢC GIỮ LẠI (ĐÃ BỔ SUNG ĐẦY ĐỦ) ---
+def find_laminate_keywords(pdf_path):
+    target_keywords = ["LAM/MASKING (IF APPLICABLE)","GLUEABLE LAM/TC BLACK (IF APPLICABLE)","FLEX PAPER/PAPER", "GLUEABLE LAM", "RAW", "LAM", "GRAIN"]
+    found_pairs = []
+    with pdfplumber.open(pdf_path) as pdf:
+        for page in pdf.pages:
+            chars = page.chars
+            if not chars: continue
+            chars = sorted(chars, key=lambda c: (round(c["top"], 1), c["x0"]))
+            full_text = "".join(c["text"] for c in chars)
+            for keyword in target_keywords:
+                for pos in [m.start() for m in re.finditer(re.escape(keyword), full_text)]:
+                    keyword_chars = chars[pos:pos + len(keyword)]
+                    if not keyword_chars: continue
+                    keyword_y = sum(c["top"] for c in keyword_chars) / len(keyword_chars)
+                    keyword_x_center = sum(c["x0"] for c in keyword_chars) / len(keyword_chars)
+                    below_word = find_word_below(chars, keyword_y, keyword_x_center, target_keywords)
+                    if below_word: found_pairs.append(f"{keyword}/{below_word}")
+                    else: found_pairs.append(keyword)
+    return found_pairs
+
+def find_word_below(chars, keyword_y, keyword_x_center, target_keywords, y_tolerance=50, x_tolerance=100):
+    chars_below = [c for c in chars if c["top"] > keyword_y + 5]
+    if not chars_below: return None
+    chars_below.sort(key=lambda c: c["top"])
+    lines = []
+    current_line, current_y = [], None
+    for char in chars_below:
+        if current_y is None or abs(char["top"] - current_y) <= 3:
+            current_line.append(char)
+            current_y = char["top"]
+        else:
+            if current_line: lines.append(current_line)
+            current_line, current_y = [char], char["top"]
+    if current_line: lines.append(current_line)
+    for line_chars in lines:
+        line_chars.sort(key=lambda c: c["x0"])
+        line_text = "".join(c["text"] for c in line_chars).strip()
+        for keyword in target_keywords:
+            if keyword in line_text:
+                line_x_center = sum(c["x0"] for c in line_chars) / len(line_chars)
+                if abs(line_x_center - keyword_x_center) <= x_tolerance: return keyword
+    return None
+
+def process_laminate_result(laminate_string):
+    target_keywords = ["FLEX PAPER/PAPER", "GLUEABLE LAM", "LAM", "RAW", "GRAIN"]
+    if not laminate_string or laminate_string.strip() == "": return ""
+    parts = [part.strip() for part in laminate_string.split(" / ")]
+    if not parts: return ""
+    clusters = [part for part in parts if "/" in part]
+    if not clusters:
+        for keyword in target_keywords:
+            if keyword in parts: return keyword
+        return parts[-1] if parts else ""
+    best_cluster, best_priority = "", float('inf')
+    for cluster in clusters:
+        cluster_keywords = cluster.split("/")
+        cluster_priority = float('inf')
+        for keyword in cluster_keywords:
+            keyword = keyword.strip()
+            if keyword in target_keywords:
+                priority = target_keywords.index(keyword)
+                if priority < cluster_priority: cluster_priority = priority
+        if cluster_priority < best_priority: best_priority, best_cluster = cluster_priority, cluster
+    if not best_cluster: best_cluster = clusters[-1]
+    return best_cluster
+
+def find_profile_a(pdf_path):
+    profile_value = ""
+    with pdfplumber.open(pdf_path) as pdf:
+        for page in pdf.pages:
+            text = page.extract_text()
+            if text:
+                match = re.search(r"PROFILE\s*:*\s*(\S+)", text, re.IGNORECASE)
+                if match: return match.group(1)
+    return profile_value
+
+def extract_edgeband_and_foil_keywords(pdf_path):
+    edgeband_L_keywords, edgeband_S_keywords = {"EDGEBAND"}, {"DNABEGDE"}
+    foil_L_keywords, foil_S_keywords = {"FOIL"}, {"LIOF"}
+    edgeband_L_count, edgeband_S_count, foil_L_count, foil_S_count = 0, 0, 0, 0
+    with pdfplumber.open(pdf_path) as pdf:
+        for page in pdf.pages:
+            words = page.extract_words()
+            if not words: continue
+            texts = [w["text"].upper() for w in words]
+            edgeband_L_count += sum(1 for t in texts if t in edgeband_L_keywords)
+            edgeband_S_count += sum(1 for t in texts if t in edgeband_S_keywords)
+            foil_L_count += sum(1 for t in texts if t in foil_L_keywords)
+            foil_S_count += sum(1 for t in texts if t in foil_S_keywords)
+    edgeband_L_count, edgeband_S_count = min(edgeband_L_count, 2), min(edgeband_S_count, 2)
+    foil_L_count, foil_S_count = min(foil_L_count, 2), min(foil_S_count, 2)
+    edgeband_result = ""
+    if edgeband_L_count > 0 and edgeband_S_count > 0: edgeband_result = f"{edgeband_L_count}L{edgeband_S_count}S"
+    elif edgeband_L_count > 0: edgeband_result = f"{edgeband_L_count}L"
+    elif edgeband_S_count > 0: edgeband_result = f"{edgeband_S_count}S"
+    foil_result = ""
+    if foil_L_count > 0 and foil_S_count > 0: foil_result = f"{foil_L_count}L{foil_S_count}S"
+    elif foil_L_count > 0: foil_result = f"{foil_L_count}L"
+    elif foil_S_count > 0: foil_result = f"{foil_S_count}S"
+    return {'Edgeband': edgeband_result, 'Foil': foil_result}
+
+def check_dimensions_status(length, width, height):
+    if (length and str(length) != '' and str(length) != 'ERROR' and width and str(width) != '' and str(width) != 'ERROR' and height and str(height) != '' and str(height) != 'ERROR'):
+        return 'Done'
+    return 'Recheck'
 
 # --- HÀM process_single_pdf ĐÃ ĐƯỢC VIẾT LẠI HOÀN TOÀN ---
+
 def process_single_pdf(pdf_path, original_filename):
+    """
+    Process a single PDF file using the new dimension logic and combine with other data.
+    """
     numbers = extract_all_numbers(pdf_path)
     
     dim_map = {}
