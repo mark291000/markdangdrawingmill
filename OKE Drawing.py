@@ -227,28 +227,45 @@ def find_profile_a(pdf_path):
     return profile_value
 
 # --- HÀM TÌM FOIL VÀ EDGEBAND ĐÃ SỬA LỖI LOGIC ---
-def extract_ls_label_for_edge_foil(pdf_path):
+def extract_edgeband_and_foil_keywords(pdf_path):
     """
-    Quét PDF để đếm và tạo nhãn L và S.
+    Quét PDF để đếm và tạo nhãn L và S cho từng danh mục riêng biệt.
     """
-    group_L = {"EDGEBAND", "FOIL"}
-    group_S = {"DNABEGDE", "LIOF"}
-    total_count_L, total_count_S = 0, 0
+    edgeband_L_keywords = {"EDGEBAND"}
+    edgeband_S_keywords = {"DNABEGDE"}
+    foil_L_keywords = {"FOIL"}
+    foil_S_keywords = {"LIOF"}
+
+    edgeband_L_count, edgeband_S_count = 0, 0
+    foil_L_count, foil_S_count = 0, 0
+
     with pdfplumber.open(pdf_path) as pdf:
         for page in pdf.pages:
             words = page.extract_words(x_tolerance=2)
             if not words: continue
-            texts = {w["text"].upper() for w in words}
-            total_count_L += sum(1 for t in texts if t in group_L)
-            total_count_S += sum(1 for t in texts if t in group_S)
-    
-    total_count_L = min(total_count_L, 2)
-    total_count_S = min(total_count_S, 2)
-    
-    final_label = ""
-    if total_count_L > 0: final_label += f"{total_count_L}L"
-    if total_count_S > 0: final_label += f"{total_count_S}S"
-    return final_label
+            
+            page_words = {w["text"].upper() for w in words}
+
+            edgeband_L_count += sum(1 for t in page_words if t in edgeband_L_keywords)
+            edgeband_S_count += sum(1 for t in page_words if t in edgeband_S_keywords)
+            foil_L_count += sum(1 for t in page_words if t in foil_L_keywords)
+            foil_S_count += sum(1 for t in page_words if t in foil_S_keywords)
+            
+    # Áp dụng giới hạn
+    edgeband_L_count, edgeband_S_count = min(edgeband_L_count, 2), min(edgeband_S_count, 2)
+    foil_L_count, foil_S_count = min(foil_L_count, 2), min(foil_S_count, 2)
+
+    # Tạo chuỗi kết quả cho Edgeband
+    edgeband_result = ""
+    if edgeband_L_count > 0: edgeband_result += f"{edgeband_L_count}L"
+    if edgeband_S_count > 0: edgeband_result += f"{edgeband_S_count}S"
+
+    # Tạo chuỗi kết quả cho Foil
+    foil_result = ""
+    if foil_L_count > 0: foil_result += f"{foil_L_count}L"
+    if foil_S_count > 0: foil_result += f"{foil_S_count}S"
+
+    return {'Edgeband': edgeband_result, 'Foil': foil_result}
 
 def check_dimensions_status(length, width, height):
     if (length and str(length) != '' and str(length) != 'ERROR' and width and str(width) != '' and str(width) != 'ERROR' and height and str(height) != '' and str(height) != 'ERROR'):
@@ -290,7 +307,7 @@ def process_single_pdf(pdf_path, original_filename):
     laminate_raw_result = " / ".join(laminate_pairs) if laminate_pairs else ""
     laminate_result = process_laminate_result(laminate_raw_result) if laminate_pairs else ""
     profile_a_result = find_profile_a(pdf_path)
-    edge_foil_label = extract_ls_label_for_edge_foil(pdf_path)
+    edgeband_foil_results = extract_edgeband_and_foil_keywords(pdf_path)
 
     final_result = {
         'Drawing #': os.path.splitext(original_filename)[0],
@@ -298,7 +315,8 @@ def process_single_pdf(pdf_path, original_filename):
         'Width (mm)': next((k for k, v in dim_map.items() if v == 'Width (mm)'), ''),
         'Height (mm)': next((k for k, v in dim_map.items() if v == 'Height (mm)'), ''),
         'Laminate': laminate_result,
-        'Edge/Foil': edge_foil_label,
+        'Edgeband': edgeband_foil_results['Edgeband'],
+        'Foil': edgeband_foil_results['Foil'],
         'Profile': profile_a_result
     }
     
@@ -351,7 +369,7 @@ def main():
                         error_result = {
                             'Drawing #': os.path.splitext(uploaded_file.name)[0],
                             'Length (mm)': 'LỖI', 'Width (mm)': 'LỖI', 'Height (mm)': 'LỖI',
-                            'Laminate': 'LỖI', 'Edge/Foil': 'LỖI',
+                            'Laminate': 'LỖI', 'Edgeband': 'LỖI', 'Foil': 'LỖI',
                             'Profile': 'LỖI', 'Status': 'LỖI'
                         }
                         all_final_results.append(error_result)
