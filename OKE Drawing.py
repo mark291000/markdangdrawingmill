@@ -1,10 +1,17 @@
-
+import streamlit as st
 import pdfplumber
 import re
-from google.colab import files
 import pandas as pd
 from collections import defaultdict
 import os
+import tempfile
+
+# Set page config
+st.set_page_config(
+    page_title="PDF Data Extractor",
+    page_icon="📄",
+    layout="wide"
+)
 
 def has_nearby_line(num_chars, lines, tolerance=3):
     """
@@ -605,60 +612,169 @@ def process_single_pdf(pdf_path):
     return final_result, all_numbers
 
 
-# ===== MAIN EXECUTION: Upload multiple files =====
-print("Please select multiple PDF files to process:")
-uploaded = files.upload()
+def save_uploaded_file(uploaded_file):
+    """Save uploaded file to temporary location and return path"""
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp_file:
+            tmp_file.write(uploaded_file.getvalue())
+            return tmp_file.name
+    except Exception as e:
+        st.error(f"Error saving file: {str(e)}")
+        return None
 
-if not uploaded:
-    print("No files uploaded!")
-else:
-    all_final_results = []
+
+# ===== STREAMLIT UI =====
+def main():
+    st.title("📄 PDF Data Extractor")
+    st.markdown("---")
     
-    # Process each uploaded file silently
-    for pdf_filename in uploaded.keys():
-        try:
-            final_result, all_numbers = process_single_pdf(pdf_filename)
-            all_final_results.append(final_result)
+    # Introduction
+    st.markdown("""
+    ### Upload PDF files to extract:
+    - **Dimensions**: Length, Width, Height
+    - **Laminate** information
+    - **Edgeband** and **Foil** data
+    - **Profile** information
+    """)
+    
+    # File uploader
+    uploaded_files = st.file_uploader(
+        "Choose PDF files", 
+        type="pdf", 
+        accept_multiple_files=True,
+        help="Select one or more PDF files to process"
+    )
+    
+    if uploaded_files:
+        st.success(f"Selected {len(uploaded_files)} file(s)")
+        
+        # Process button
+        if st.button("🚀 Process Files", type="primary"):
+            all_final_results = []
             
-        except Exception as e:
-            print(f"✗ Error processing {pdf_filename}: {str(e)}")
-            # Add an empty result with error indication
-            error_result = {
-                'Drawing #': os.path.splitext(pdf_filename)[0],
-                'Length (mm)': 'ERROR',
-                'Width (mm)': 'ERROR',
-                'Height (mm)': 'ERROR',
-                'Laminate': 'ERROR',
-                'Edgeband': 'ERROR',
-                'Foil': 'ERROR',
-                'Profile': 'ERROR',
-                'Status': 'ERROR'
-            }
-            all_final_results.append(error_result)
-
-    # ===== Display consolidated FINAL RESULTS TABLE =====
-    if all_final_results:
-        print(f"\nFINAL RESULTS TABLE - ALL FILES")
-        print(f"{'='*150}")
-        
-        final_results_df = pd.DataFrame(all_final_results)
-        print(final_results_df.to_string(index=False))
-        
-        print(f"\n📊 **Summary**: Successfully processed {len(uploaded)} file(s)")
-        
-        # Count successful vs error results
-        successful_files = len([r for r in all_final_results if r['Length (mm)'] != 'ERROR'])
-        error_files = len(all_final_results) - successful_files
-        
-        # Count Done vs Recheck statuses
-        done_files = len([r for r in all_final_results if r['Status'] == 'Done'])
-        recheck_files = len([r for r in all_final_results if r['Status'] == 'Recheck'])
-        
-        print(f"   - ✅ Successful: {successful_files}")
-        print(f"   - ❌ Errors: {error_files}")
-        print(f"   - ✅ Done (all dimensions): {done_files}")
-        print(f"   - ⚠️  Recheck (missing dimensions): {recheck_files}")
-        
+            # Progress bar
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            
+            total_files = len(uploaded_files)
+            
+            for i, uploaded_file in enumerate(uploaded_files):
+                # Update progress
+                progress = (i + 1) / total_files
+                progress_bar.progress(progress)
+                status_text.text(f"Processing: {uploaded_file.name} ({i+1}/{total_files})")
+                
+                # Save uploaded file to temporary location
+                temp_path = save_uploaded_file(uploaded_file)
+                
+                if temp_path:
+                    try:
+                        final_result, all_numbers = process_single_pdf(temp_path)
+                        all_final_results.append(final_result)
+                        
+                        # Clean up temporary file
+                        os.unlink(temp_path)
+                        
+                    except Exception as e:
+                        st.error(f"Error processing {uploaded_file.name}: {str(e)}")
+                        # Add error result
+                        error_result = {
+                            'Drawing #': os.path.splitext(uploaded_file.name)[0],
+                            'Length (mm)': 'ERROR',
+                            'Width (mm)': 'ERROR',
+                            'Height (mm)': 'ERROR',
+                            'Laminate': 'ERROR',
+                            'Edgeband': 'ERROR',
+                            'Foil': 'ERROR',
+                            'Profile': 'ERROR',
+                            'Status': 'ERROR'
+                        }
+                        all_final_results.append(error_result)
+                        
+                        # Clean up temporary file
+                        if temp_path and os.path.exists(temp_path):
+                            os.unlink(temp_path)
+            
+            # Clear progress indicators
+            progress_bar.empty()
+            status_text.empty()
+            
+            # Display results
+            if all_final_results:
+                st.markdown("---")
+                st.subheader("📊 Final Results")
+                
+                # Create DataFrame
+                final_results_df = pd.DataFrame(all_final_results)
+                
+                # Display table
+                st.dataframe(
+                    final_results_df,
+                    use_container_width=True,
+                    hide_index=True
+                )
+                
+                # Summary statistics
+                st.markdown("---")
+                st.subheader("📈 Summary Statistics")
+                
+                col1, col2, col3, col4 = st.columns(4)
+                
+                # Calculate statistics
+                total_files = len(all_final_results)
+                successful_files = len([r for r in all_final_results if r['Length (mm)'] != 'ERROR'])
+                error_files = total_files - successful_files
+                done_files = len([r for r in all_final_results if r['Status'] == 'Done'])
+                recheck_files = len([r for r in all_final_results if r['Status'] == 'Recheck'])
+                
+                with col1:
+                    st.metric("Total Files", total_files)
+                
+                with col2:
+                    st.metric("Successful", successful_files, delta=None if error_files == 0 else f"-{error_files}")
+                
+                with col3:
+                    st.metric("Complete (Done)", done_files, delta_color="normal")
+                
+                with col4:
+                    st.metric("Need Review", recheck_files, delta_color="inverse")
+                
+                # Download button for CSV
+                st.markdown("---")
+                csv = final_results_df.to_csv(index=False)
+                st.download_button(
+                    label="💾 Download Results as CSV",
+                    data=csv,
+                    file_name="pdf_extraction_results.csv",
+                    mime="text/csv"
+                )
+                
+                # Status color coding info
+                st.markdown("---")
+                st.markdown("### 🎨 Status Legend")
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.success("**Done**: All dimensions extracted successfully")
+                with col2:
+                    st.warning("**Recheck**: Missing one or more dimensions")
+                
+            else:
+                st.error("No results to display!")
+    
     else:
-        print("No results to display!")
+        st.info("👆 Please upload PDF files to get started")
+    
+    # Footer
+    st.markdown("---")
+    st.markdown(
+        """
+        <div style='text-align: center; color: #666; font-size: 0.9em;'>
+        PDF Data Extractor | Built with Streamlit
+        </div>
+        """, 
+        unsafe_allow_html=True
+    )
 
+
+if __name__ == "__main__":
+    main()
