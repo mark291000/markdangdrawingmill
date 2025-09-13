@@ -185,7 +185,7 @@ def find_laminate_keywords(pdf_path):
     Find keywords in priority order: FLEX PAPER/PAPER, GLUEABLE LAM, LAM, RAW, GRAIN
     and the word below them.
     """
-    target_keywords = ["LAM/MASKING (IF APPLICABLE)","GLUEABLE LAM/TC BLACK (IF APPLICABLE)","FLEX PAPER/PAPER", "GLUEABLE LAM", "LAM", "RAW", "GRAIN"]
+    target_keywords = ["LAM/MASKING (IF APPLICABLE)","GLUEABLE LAM/TC BLACK (IF APPLICABLE)","FLEX PAPER/PAPER", "GLUEABLE LAM", "RAW", "LAM", "GRAIN"]
     found_pairs = []
 
     with pdfplumber.open(pdf_path) as pdf:
@@ -772,3 +772,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
