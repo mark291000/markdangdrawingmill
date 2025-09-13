@@ -39,6 +39,14 @@ def is_near_dimension_line(number_bbox, h_lines, v_lines, tolerance=15):
             if top_tick and bottom_tick: return True
     return False
 
+def is_near_any_line(number_bbox, all_lines, proximity_tolerance=10):
+    for line in all_lines:
+        search_box = {'x0': number_bbox['x0'] - proximity_tolerance, 'top': number_bbox['top'] - proximity_tolerance, 'x1': number_bbox['x1'] + proximity_tolerance, 'bottom': number_bbox['bottom'] + proximity_tolerance}
+        line_box = {'x0': min(line['x0'], line['x1']), 'top': min(line['top'], line['bottom']), 'x1': max(line['x0'], line['x1']), 'bottom': max(line['top'], line['bottom'])}
+        if (max(search_box['x0'], line_box['x0']) <= min(search_box['x1'], line_box['x1']) and max(search_box['top'], line_box['top']) <= min(search_box['bottom'], line_box['bottom'])):
+            return True
+    return False
+
 def is_bbox_inside_zones(bbox, zones):
     for zone in zones:
         if (max(bbox['x0'], zone['x0']) < min(bbox['x1'], zone['x1']) and max(bbox['top'], zone['top']) < min(bbox['bottom'], zone['bottom'])):
@@ -58,6 +66,7 @@ def get_ink_area_of_first_char(cluster, page):
 def calculate_confidence(number_info):
     score = 20
     if number_info['is_near_dimension_line']: score += 50
+    if number_info['is_near_any_line']: score += 10
     if number_info['ink_area'] > 15: score += 25
     elif number_info['ink_area'] > 8: score += 15
     if number_info['bbox']['top'] > number_info['page_height'] * 0.85: score -= 40
@@ -77,7 +86,8 @@ def process_cluster_for_new_logic(cluster, page, orientation, h_lines, v_lines, 
         ink_area = get_ink_area_of_first_char(cluster, page)
         if ink_area > 200: return None
         is_dim_line = is_near_dimension_line(bbox, h_lines, v_lines)
-        number_info = {'value': value, 'bbox': bbox, 'ink_area': ink_area, 'orientation': orientation, 'is_near_dimension_line': is_dim_line, 'page_height': page.height}
+        is_any_line = is_near_any_line(bbox, page.lines)
+        number_info = {'value': value, 'bbox': bbox, 'ink_area': ink_area, 'orientation': orientation, 'is_near_dimension_line': is_dim_line, 'is_near_any_line': is_any_line, 'page_height': page.height}
         confidence = calculate_confidence(number_info)
         return {'Number': value, 'Ink Area': round(ink_area, 2), 'Confidence (%)': confidence}
     return None
@@ -141,7 +151,8 @@ def assign_ink_groups(df, tolerance=1.0):
     group_mapping[unique_inks[0]] = current_group_id
     last_val_in_group = unique_inks[0]
     for ink in unique_inks[1:]:
-        if ink - last_val_in_group <= tolerance: group_mapping[ink] = current_group_id
+        if ink - last_val_in_group <= tolerance:
+            group_mapping[ink] = current_group_id
         else:
             current_group_id += 1
             group_mapping[ink] = current_group_id
@@ -149,6 +160,7 @@ def assign_ink_groups(df, tolerance=1.0):
     df['Ink Area Group'] = df['Ink Area'].map(group_mapping)
     return df
 
+# --- CÁC HÀM CŨ ĐƯỢC GIỮ LẠI ---
 def find_laminate_keywords(pdf_path):
     target_keywords = ["LAM/MASKING (IF APPLICABLE)","GLUEABLE LAM/TC BLACK (IF APPLICABLE)","FLEX PAPER/PAPER", "GLUEABLE LAM", "RAW", "LAM", "GRAIN"]
     found_pairs = []
@@ -326,7 +338,7 @@ def to_excel(df):
         except ImportError: return None
     return output.getvalue()
 
-# ===== GIAO DIỆN STREAMLIT MỚI (Tự động, tối giản) =====
+# ===== GIAO DIỆN STREAMLIT MỚI (ĐÃ SỬA LỖI VÀ HOÀN THIỆN) =====
 def main():
     st.title("📄 Trình trích xuất dữ liệu PDF")
     st.write("Tự động nhận diện kích thước (Dài, Rộng, Cao) và các thông tin khác từ bản vẽ kỹ thuật.")
@@ -340,7 +352,6 @@ def main():
     
     if uploaded_files:
         all_final_results = []
-        # Sử dụng st.spinner để hiển thị trạng thái đang xử lý
         with st.spinner(f"⏳ Đang xử lý {len(uploaded_files)} file... Vui lòng chờ một lát."):
             for uploaded_file in uploaded_files:
                 temp_path = save_uploaded_file(uploaded_file)
@@ -370,7 +381,6 @@ def main():
             
             st.markdown("---")
             
-            # Chỉ hiển thị nút Download Excel
             excel_data = to_excel(final_results_df)
             if excel_data:
                 st.download_button(
@@ -383,8 +393,19 @@ def main():
                 st.button("📊 Excel (Không khả dụng)", disabled=True, help="Cần cài đặt thư viện xlsxwriter hoặc openpyxl")
         else:
             st.error("Không có kết quả nào để hiển thị!")
+    
     else:
         st.info("👆 Vui lòng tải lên một hoặc nhiều file PDF để bắt đầu.")
     
     st.markdown("---")
-    st.markdown("<div style='text-align: center; color: #666; font-size: 0.9em;'>PDF Data Extractor |
+    st.markdown(
+        """
+        <div style='text-align: center; color: #666; font-size: 0.9em;'>
+        PDF Data Extractor | Built with Streamlit
+        </div>
+        """, 
+        unsafe_allow_html=True
+    )
+
+if __name__ == "__main__":
+    main()
