@@ -5,6 +5,7 @@ import pandas as pd
 from collections import defaultdict
 import os
 import tempfile
+import io
 
 # Set page config
 st.set_page_config(
@@ -439,7 +440,7 @@ def check_dimensions_status(length, width, height):
         return 'Recheck'
 
 
-def process_single_pdf(pdf_path):
+def process_single_pdf(pdf_path, original_filename):
     """Process a single PDF file and return the results"""
     all_numbers = []
     
@@ -479,7 +480,7 @@ def process_single_pdf(pdf_path):
                            key=lambda x: x.map({'Yes': 0, 'No': 1}) if x.name == 'Line' else x)
 
         # STEP 2: Find the first valid Boldness from top to bottom
-        valid_values = [12.2, 8.01, 9.02, 6.01, 11.90, 7.93, 12.98, 8.65]
+        valid_values = [12.2, 8.01, 9.01, 9.02, 6.01, 11.90, 7.93, 12.98, 8.65]
         allowed_group = None
 
         for idx, row in df.iterrows():
@@ -488,8 +489,8 @@ def process_single_pdf(pdf_path):
 
                 if first_boldness in [12.02, 8.01]:
                     allowed_group = [12.02, 8.01]
-                elif first_boldness in [9.02, 6.01]:
-                    allowed_group = [9.02, 6.01]
+                elif first_boldness in [9.01, 9.02, 6.01]:
+                    allowed_group = [9.01, 9.02, 6.01]
                 elif first_boldness in [11.90, 7.93]:
                     allowed_group = [11.90, 7.93]
                 elif first_boldness in [12.98, 8.65]:
@@ -566,9 +567,9 @@ def process_single_pdf(pdf_path):
                 df.loc[(df['Result'] == 'correct') & (df['Number'].astype(int) == middle), 'Status'] = 'Width'
                 df.loc[(df['Result'] == 'correct') & (df['Number'].astype(int) == smallest), 'Status'] = 'Height'
 
-    # ===== Create final result row =====
-    # Get filename without extension
-    drawing_name = os.path.splitext(os.path.basename(pdf_path))[0]
+    # ===== Create final result row with original filename =====
+    # Use original filename without extension for Drawing #
+    drawing_name = os.path.splitext(original_filename)[0]
 
     # Initialize dictionary for the final result
     final_result = {
@@ -623,6 +624,14 @@ def save_uploaded_file(uploaded_file):
         return None
 
 
+def to_excel(df):
+    """Convert DataFrame to Excel bytes"""
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name='PDF_Extraction_Results')
+    return output.getvalue()
+
+
 # ===== STREAMLIT UI =====
 def main():
     st.title("📄 PDF Data Extractor")
@@ -669,7 +678,7 @@ def main():
                 
                 if temp_path:
                     try:
-                        final_result, all_numbers = process_single_pdf(temp_path)
+                        final_result, all_numbers = process_single_pdf(temp_path, uploaded_file.name)
                         all_final_results.append(final_result)
                         
                         # Clean up temporary file
@@ -714,49 +723,31 @@ def main():
                     hide_index=True
                 )
                 
-                # Summary statistics
+                # Download and Copy buttons
                 st.markdown("---")
-                st.subheader("📈 Summary Statistics")
-                
-                col1, col2, col3, col4 = st.columns(4)
-                
-                # Calculate statistics
-                total_files = len(all_final_results)
-                successful_files = len([r for r in all_final_results if r['Length (mm)'] != 'ERROR'])
-                error_files = total_files - successful_files
-                done_files = len([r for r in all_final_results if r['Status'] == 'Done'])
-                recheck_files = len([r for r in all_final_results if r['Status'] == 'Recheck'])
-                
-                with col1:
-                    st.metric("Total Files", total_files)
-                
-                with col2:
-                    st.metric("Successful", successful_files, delta=None if error_files == 0 else f"-{error_files}")
-                
-                with col3:
-                    st.metric("Complete (Done)", done_files, delta_color="normal")
-                
-                with col4:
-                    st.metric("Need Review", recheck_files, delta_color="inverse")
-                
-                # Download button for CSV
-                st.markdown("---")
-                csv = final_results_df.to_csv(index=False)
-                st.download_button(
-                    label="💾 Download Results as CSV",
-                    data=csv,
-                    file_name="pdf_extraction_results.csv",
-                    mime="text/csv"
-                )
-                
-                # Status color coding info
-                st.markdown("---")
-                st.markdown("### 🎨 Status Legend")
                 col1, col2 = st.columns(2)
+                
                 with col1:
-                    st.success("**Done**: All dimensions extracted successfully")
+                    # Download Excel button
+                    excel_data = to_excel(final_results_df)
+                    st.download_button(
+                        label="📊 Download Excel",
+                        data=excel_data,
+                        file_name="pdf_extraction_results.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
+                
                 with col2:
-                    st.warning("**Recheck**: Missing one or more dimensions")
+                    # Copy table button (shows copyable text)
+                    if st.button("📋 Copy Table Data"):
+                        # Create tab-separated text for easy copying
+                        clipboard_text = final_results_df.to_csv(sep='\t', index=False)
+                        st.text_area(
+                            "Copy this data to clipboard:",
+                            value=clipboard_text,
+                            height=200,
+                            help="Select all text and copy (Ctrl+A, Ctrl+C)"
+                        )
                 
             else:
                 st.error("No results to display!")
