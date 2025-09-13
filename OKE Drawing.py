@@ -15,554 +15,939 @@ st.set_page_config(
     layout="wide"
 )
 
-# --- CÁC HÀM PHỤ TRỢ (LOGIC XỬ LÝ) ---
+# --- CÁC HÀM XỬ LÝ CỐT LÕI ---
+
+def extract_page_elements(page):
+    """
+    Trích xuất các elements cơ bản từ trang PDF
+    """
+    try:
+        chars = page.chars or []
+        lines = page.lines or []
+        words = page.extract_words(x_tolerance=2, y_tolerance=2) if hasattr(page, 'extract_words') else []
+        
+        return {
+            'chars': chars,
+            'lines': lines, 
+            'words': words,
+            'width': page.width,
+            'height': page.height
+        }
+    except Exception as e:
+        st.error(f"Lỗi khi trích xuất elements: {e}")
+        return {'chars': [], 'lines': [], 'words': [], 'width': 0, 'height': 0}
 
 def find_dimension_lines(lines, tolerance=2):
-    horizontal_lines = [line for line in lines if abs(line['y0'] - line['y1']) <= tolerance]
-    vertical_lines = [line for line in lines if abs(line['x0'] - line['x1']) <= tolerance]
+    """
+    Tìm các đường kích thước ngang và dọc
+    """
+    horizontal_lines = []
+    vertical_lines = []
+    
+    for line in lines:
+        try:
+            if abs(line['y0'] - line['y1']) <= tolerance:
+                horizontal_lines.append(line)
+            elif abs(line['x0'] - line['x1']) <= tolerance:
+                vertical_lines.append(line)
+        except (KeyError, TypeError):
+            continue
+            
     return horizontal_lines, vertical_lines
 
-def is_near_dimension_line(number_bbox, h_lines, v_lines, tolerance=15):
-    num_x_center = (number_bbox['x0'] + number_bbox['x1']) / 2
-    num_y_center = (number_bbox['top'] + number_bbox['bottom']) / 2
-    for h_line in h_lines:
-        line_x_min, line_x_max = min(h_line['x0'], h_line['x1']), max(h_line['x0'], h_line['x1'])
-        if (abs(h_line['top'] - num_y_center) < tolerance) and (line_x_min < num_x_center < line_x_max):
-            left_tick = any(abs(v['x0'] - line_x_min) < 2 for v in v_lines)
-            right_tick = any(abs(v['x0'] - line_x_max) < 2 for v in v_lines)
-            if left_tick and right_tick: return True
-    for v_line in v_lines:
-        line_y_min, line_y_max = min(v_line['top'], v_line['bottom']), max(v_line['top'], v_line['bottom'])
-        if (abs(v_line['x0'] - num_x_center) < tolerance) and (line_y_min < num_y_center < line_y_max):
-            top_tick = any(abs(h['top'] - line_y_min) < 2 for h in h_lines)
-            bottom_tick = any(abs(h['top'] - line_y_max) < 2 for h in h_lines)
-            if top_tick and bottom_tick: return True
-    return False
-
-def is_bbox_inside_zones(bbox, zones):
-    for zone in zones:
-        if (max(bbox['x0'], zone['x0']) < min(bbox['x1'], zone['x1']) and max(bbox['top'], zone['top']) < min(bbox['bottom'], zone['bottom'])):
-            return True
-    return False
-
-def get_ink_area_of_first_char(cluster, page):
-    if not cluster: return 0.0
-    first_char = cluster[0]
-    char_bbox = (first_char['x0'], first_char['top'], first_char['x1'], first_char['bottom'])
-    cropped_char_page = page.crop(char_bbox)
-    ink_area = 0.0
-    for rect in cropped_char_page.rects: ink_area += rect['width'] * rect['height']
-    for line in cropped_char_page.lines: ink_area += math.sqrt((line['x1'] - line['x0'])**2 + (line['y1'] - line['y0'])**2) * line.get('linewidth', 1)
-    return ink_area
-
-def calculate_confidence(number_info):
-    score = 20
-    if number_info['is_near_dimension_line']: score += 50
-    if number_info['ink_area'] > 15: score += 25
-    elif number_info['ink_area'] > 8: score += 15
-    if number_info['bbox']['top'] > number_info['page_height'] * 0.85: score -= 40
-    if number_info['orientation'] == 'Horizontal': score += 5
-    else: score -= 5
-    return max(0, min(100, score))
-
-def extract_alphanumeric_strings_from_page(page):
+def build_alphanumeric_strings(page_elements):
     """
-    Trích xuất tất cả các chuỗi alphanumeric từ trang PDF
-    và trả về danh sách các bbox của những chuỗi này
+    Xây dựng danh sách các chuỗi alphanumeric từ words và chars
     """
-    alphanumeric_bboxes = []
+    alphanumeric_strings = []
     
-    # Lấy tất cả các từ từ trang
+    # Phương pháp 1: Từ words
     try:
-        words = page.extract_words(x_tolerance=2, y_tolerance=2)
-    except:
-        words = []
-    
-    for word in words:
-        word_text = word['text'].strip()
-        
-        # Kiểm tra xem từ có chứa cả chữ và số không
-        has_letter = any(c.isalpha() for c in word_text)
-        has_digit = any(c.isdigit() for c in word_text)
-        
-        if has_letter and has_digit and len(word_text) > 1:
-            alphanumeric_bboxes.append({
-                'x0': word['x0'],
-                'x1': word['x1'], 
-                'top': word['top'],
-                'bottom': word['bottom'],
-                'text': word_text
-            })
-    
-    return alphanumeric_bboxes
-
-def is_number_in_alphanumeric_string(cluster, alphanumeric_bboxes, tolerance=5):
-    """
-    Kiểm tra xem cluster số có nằm trong một chuỗi alphanumeric không
-    """
-    if not cluster or not alphanumeric_bboxes:
-        return False
-    
-    # Tạo bbox cho cluster số
-    cluster_bbox = {
-        'x0': min(c['x0'] for c in cluster),
-        'x1': max(c['x1'] for c in cluster),
-        'top': min(c['top'] for c in cluster),
-        'bottom': max(c['bottom'] for c in cluster)
-    }
-    
-    # Kiểm tra xem cluster có overlap với bất kỳ alphanumeric bbox nào không
-    for alpha_bbox in alphanumeric_bboxes:
-        # Kiểm tra overlap
-        x_overlap = (cluster_bbox['x0'] < alpha_bbox['x1'] + tolerance and 
-                    cluster_bbox['x1'] > alpha_bbox['x0'] - tolerance)
-        y_overlap = (cluster_bbox['top'] < alpha_bbox['bottom'] + tolerance and 
-                    cluster_bbox['bottom'] > alpha_bbox['top'] - tolerance)
-        
-        if x_overlap and y_overlap:
-            return True
-    
-    return False
-
-def build_text_from_chars(chars, tolerance_x=2, tolerance_y=3):
-    """
-    Xây dựng các từ/chuỗi từ danh sách chars
-    """
-    if not chars:
-        return []
-    
-    # Sắp xếp chars theo vị trí
-    sorted_chars = sorted(chars, key=lambda c: (round(c['top'], 1), c['x0']))
-    
-    words = []
-    current_word_chars = []
-    
-    for i, char in enumerate(sorted_chars):
-        if not current_word_chars:
-            current_word_chars = [char]
-        else:
-            last_char = current_word_chars[-1]
+        for word in page_elements['words']:
+            text = word['text'].strip()
+            has_letter = any(c.isalpha() for c in text)
+            has_digit = any(c.isdigit() for c in text)
             
-            # Kiểm tra xem có cùng dòng và gần nhau không
-            same_line = abs(char['top'] - last_char['top']) <= tolerance_y
-            close_x = char['x0'] - last_char['x1'] <= tolerance_x
-            
-            if same_line and close_x:
-                current_word_chars.append(char)
+            if has_letter and has_digit and len(text) > 1:
+                alphanumeric_strings.append({
+                    'text': text,
+                    'x0': word['x0'],
+                    'x1': word['x1'],
+                    'top': word['top'],
+                    'bottom': word['bottom'],
+                    'method': 'words'
+                })
+    except Exception:
+        pass
+    
+    # Phương pháp 2: Từ chars (backup)
+    try:
+        chars = sorted(page_elements['chars'], key=lambda c: (round(c['top'], 1), c['x0']))
+        current_string = []
+        
+        for i, char in enumerate(chars):
+            if current_string:
+                last_char = current_string[-1]
+                # Kiểm tra khoảng cách
+                distance_x = char['x0'] - last_char['x1']
+                distance_y = abs(char['top'] - last_char['top'])
+                
+                if distance_x <= 3 and distance_y <= 2:
+                    current_string.append(char)
+                else:
+                    # Xử lý chuỗi hiện tại
+                    if len(current_string) > 1:
+                        text = ''.join([c['text'] for c in current_string])
+                        has_letter = any(c.isalpha() for c in text)
+                        has_digit = any(c.isdigit() for c in text)
+                        
+                        if has_letter and has_digit:
+                            alphanumeric_strings.append({
+                                'text': text,
+                                'x0': min(c['x0'] for c in current_string),
+                                'x1': max(c['x1'] for c in current_string),
+                                'top': min(c['top'] for c in current_string),
+                                'bottom': max(c['bottom'] for c in current_string),
+                                'method': 'chars'
+                            })
+                    current_string = [char]
             else:
-                # Kết thúc từ hiện tại và bắt đầu từ mới
-                if current_word_chars:
-                    word_text = ''.join([c['text'] for c in current_word_chars])
-                    if word_text.strip():
-                        words.append({
-                            'text': word_text.strip(),
-                            'x0': min(c['x0'] for c in current_word_chars),
-                            'x1': max(c['x1'] for c in current_word_chars),
-                            'top': min(c['top'] for c in current_word_chars),
-                            'bottom': max(c['bottom'] for c in current_word_chars),
-                            'chars': current_word_chars
-                        })
-                current_word_chars = [char]
+                current_string = [char]
+        
+        # Xử lý chuỗi cuối cùng
+        if len(current_string) > 1:
+            text = ''.join([c['text'] for c in current_string])
+            has_letter = any(c.isalpha() for c in text)
+            has_digit = any(c.isdigit() for c in text)
+            
+            if has_letter and has_digit:
+                alphanumeric_strings.append({
+                    'text': text,
+                    'x0': min(c['x0'] for c in current_string),
+                    'x1': max(c['x1'] for c in current_string),
+                    'top': min(c['top'] for c in current_string),
+                    'bottom': max(c['bottom'] for c in current_string),
+                    'method': 'chars'
+                })
+    except Exception:
+        pass
     
-    # Thêm từ cuối cùng
-    if current_word_chars:
-        word_text = ''.join([c['text'] for c in current_word_chars])
-        if word_text.strip():
-            words.append({
-                'text': word_text.strip(),
-                'x0': min(c['x0'] for c in current_word_chars),
-                'x1': max(c['x1'] for c in current_word_chars),
-                'top': min(c['top'] for c in current_word_chars),
-                'bottom': max(c['bottom'] for c in current_word_chars),
-                'chars': current_word_chars
-            })
-    
-    return words
+    return alphanumeric_strings
 
-def is_cluster_part_of_mixed_string(cluster, page_chars):
+def calculate_robust_ink_area(cluster, page):
     """
-    Kiểm tra xem cluster số có phải là một phần của chuỗi chứa cả chữ và số không
-    Sử dụng phương pháp xây dựng từ từ chars
+    Tính toán ink area với nhiều phương pháp fallback
     """
     if not cluster:
+        return 0.0
+    
+    try:
+        # Lấy thông tin ký tự đầu tiên
+        first_char = cluster[0]
+        char_width = first_char['x1'] - first_char['x0']
+        char_height = first_char['bottom'] - first_char['top']
+        font_size = first_char.get('size', 10)
+        
+        # Phương pháp 1: Crop và tính ink area
+        try:
+            padding = 0.5
+            bbox = (
+                max(0, first_char['x0'] - padding),
+                max(0, first_char['top'] - padding),
+                min(page.width, first_char['x1'] + padding),
+                min(page.height, first_char['bottom'] + padding)
+            )
+            
+            if bbox[2] > bbox[0] and bbox[3] > bbox[1]:
+                cropped = page.crop(bbox)
+                if cropped:
+                    ink_area = 0.0
+                    
+                    # Từ rects
+                    for rect in (cropped.rects or []):
+                        if 'width' in rect and 'height' in rect:
+                            ink_area += rect['width'] * rect['height']
+                    
+                    # Từ lines
+                    for line in (cropped.lines or []):
+                        if all(k in line for k in ['x0', 'y0', 'x1', 'y1']):
+                            length = math.sqrt((line['x1'] - line['x0'])**2 + (line['y1'] - line['y0'])**2)
+                            width = line.get('linewidth', 0.5)
+                            ink_area += length * width
+                    
+                    if ink_area > 0:
+                        return ink_area
+        except Exception:
+            pass
+        
+        # Phương pháp 2: Ước tính dựa trên font size
+        if font_size > 0:
+            # Ink area ước tính = font_size^1.5 * độ phức tạp ký tự
+            char_complexity = 0.7  # Ký tự số thường đơn giản hơn chữ cái
+            estimated_ink = (font_size ** 1.5) * char_complexity
+            return estimated_ink
+        
+        # Phương pháp 3: Ước tính dựa trên kích thước bbox
+        bbox_area = char_width * char_height
+        ink_ratio = 0.5  # 50% bbox là ink
+        return bbox_area * ink_ratio
+        
+    except Exception:
+        # Phương pháp 4: Giá trị mặc định
+        return 8.0
+
+def is_number_in_alphanumeric(cluster, alphanumeric_strings, tolerance=3):
+    """
+    Kiểm tra xem cluster số có nằm trong chuỗi alphanumeric không
+    """
+    if not cluster or not alphanumeric_strings:
         return False
     
-    # Xây dựng các từ từ chars
-    words = build_text_from_chars(page_chars)
-    
-    # Tạo bbox cho cluster
-    cluster_bbox = {
-        'x0': min(c['x0'] for c in cluster),
-        'x1': max(c['x1'] for c in cluster),
-        'top': min(c['top'] for c in cluster),
-        'bottom': max(c['bottom'] for c in cluster)
-    }
-    
-    # Kiểm tra từng từ
-    for word in words:
-        word_text = word['text']
+    try:
+        cluster_bbox = {
+            'x0': min(c['x0'] for c in cluster),
+            'x1': max(c['x1'] for c in cluster),
+            'top': min(c['top'] for c in cluster),
+            'bottom': max(c['bottom'] for c in cluster)
+        }
         
-        # Kiểm tra xem từ có chứa cả chữ và số không
-        has_letter = any(c.isalpha() for c in word_text)
-        has_digit = any(c.isdigit() for c in word_text)
-        
-        if has_letter and has_digit:
-            # Kiểm tra xem cluster có overlap với từ này không
-            x_overlap = (cluster_bbox['x0'] < word['x1'] and cluster_bbox['x1'] > word['x0'])
-            y_overlap = (cluster_bbox['top'] < word['bottom'] and cluster_bbox['bottom'] > word['top'])
+        for alpha_str in alphanumeric_strings:
+            # Kiểm tra overlap với tolerance
+            x_overlap = (cluster_bbox['x0'] < alpha_str['x1'] + tolerance and 
+                        cluster_bbox['x1'] > alpha_str['x0'] - tolerance)
+            y_overlap = (cluster_bbox['top'] < alpha_str['bottom'] + tolerance and 
+                        cluster_bbox['bottom'] > alpha_str['top'] - tolerance)
             
             if x_overlap and y_overlap:
                 return True
-    
-    return False
+        
+        return False
+    except Exception:
+        return False
 
-def process_cluster_for_new_logic(cluster, page, orientation, h_lines, v_lines, date_zones):
-    if not cluster: return None
-    number_str = "".join([c['text'] for c in cluster])
-    if orientation == 'Vertical': number_str = number_str[::-1]
-    
-    if number_str.isdigit() and int(number_str) < 3500:
-        value = int(number_str)
-        bbox = {'x0': min(c['x0'] for c in cluster), 'top': min(c['top'] for c in cluster), 'x1': max(c['x1'] for c in cluster), 'bottom': max(c['bottom'] for c in cluster)}
-        if is_bbox_inside_zones(bbox, date_zones): return None
+def is_near_dimension_line(bbox, h_lines, v_lines, tolerance=15):
+    """
+    Kiểm tra xem số có gần đường kích thước không
+    """
+    try:
+        center_x = (bbox['x0'] + bbox['x1']) / 2
+        center_y = (bbox['top'] + bbox['bottom']) / 2
         
-        # KIỂM TRA 1: Sử dụng phương pháp extract_words
-        alphanumeric_bboxes = extract_alphanumeric_strings_from_page(page)
-        if is_number_in_alphanumeric_string(cluster, alphanumeric_bboxes):
-            return None
+        # Kiểm tra đường ngang
+        for h_line in h_lines:
+            line_x_min = min(h_line['x0'], h_line['x1'])
+            line_x_max = max(h_line['x0'], h_line['x1'])
+            line_y = h_line['top']
+            
+            if (abs(line_y - center_y) < tolerance and 
+                line_x_min < center_x < line_x_max):
+                # Kiểm tra có tick marks không
+                has_left_tick = any(abs(v['x0'] - line_x_min) < 3 for v in v_lines)
+                has_right_tick = any(abs(v['x0'] - line_x_max) < 3 for v in v_lines)
+                if has_left_tick and has_right_tick:
+                    return True
         
-        # KIỂM TRA 2: Sử dụng phương pháp xây dựng từ chars
-        if is_cluster_part_of_mixed_string(cluster, page.chars):
-            return None
+        # Kiểm tra đường dọc
+        for v_line in v_lines:
+            line_y_min = min(v_line['top'], v_line['bottom'])
+            line_y_max = max(v_line['top'], v_line['bottom'])
+            line_x = v_line['x0']
+            
+            if (abs(line_x - center_x) < tolerance and 
+                line_y_min < center_y < line_y_max):
+                # Kiểm tra có tick marks không
+                has_top_tick = any(abs(h['top'] - line_y_min) < 3 for h in h_lines)
+                has_bottom_tick = any(abs(h['top'] - line_y_max) < 3 for h in h_lines)
+                if has_top_tick and has_bottom_tick:
+                    return True
         
-        ink_area = get_ink_area_of_first_char(cluster, page)
-        if ink_area > 200: return None
-        is_dim_line = is_near_dimension_line(bbox, h_lines, v_lines)
-        number_info = {'value': value, 'bbox': bbox, 'ink_area': ink_area, 'orientation': orientation, 'is_near_dimension_line': is_dim_line, 'page_height': page.height}
-        confidence = calculate_confidence(number_info)
-        return {'Number': value, 'Ink Area': round(ink_area, 2), 'Confidence (%)': confidence}
-    return None
+        return False
+    except Exception:
+        return False
 
-def extract_all_numbers(pdf_path):
-    all_numbers_data = []
-    with pdfplumber.open(pdf_path) as pdf:
-        for page in pdf.pages:
-            lines, h_lines, v_lines = page.lines, *find_dimension_lines(page.lines)
-            date_zones = page.search(r'\b\d{1,2}/\d{1,2}/\d{4}\b', regex=True)
-            h_chars = sorted([c for c in page.chars if c.get("upright", True)], key=lambda c: (round(c["top"], 1), c["x0"]))
-            current_cluster, last_char = [], None
-            for char in h_chars:
-                if char['text'].isdigit():
-                    if current_cluster and last_char and (char['x0'] - last_char['x1'] > char.get('size', 8) * 0.6 or abs(char['top'] - last_char['top']) > 2):
-                        result = process_cluster_for_new_logic(current_cluster, page, 'Horizontal', h_lines, v_lines, date_zones)
-                        if result: all_numbers_data.append(result)
-                        current_cluster = [char]
-                    else: current_cluster.append(char)
-                else:
-                    if current_cluster:
-                        result = process_cluster_for_new_logic(current_cluster, page, 'Horizontal', h_lines, v_lines, date_zones)
-                        if result: all_numbers_data.append(result)
-                    current_cluster = []
-                last_char = char
-            if current_cluster:
-                result = process_cluster_for_new_logic(current_cluster, page, 'Horizontal', h_lines, v_lines, date_zones)
-                if result: all_numbers_data.append(result)
-            v_chars_by_col = defaultdict(list)
-            for char in [c for c in page.chars if not c.get("upright", True)]: v_chars_by_col[round(char['x0'], 0)].append(char)
-            for col in v_chars_by_col.values():
-                col.sort(key=lambda c: c['top'])
-                current_cluster, last_char = [], None
-                for char in col:
-                    if char['text'].isdigit():
-                        if current_cluster and last_char and (char['top'] - last_char['bottom'] > char.get('size', 8) * 0.6):
-                            result = process_cluster_for_new_logic(current_cluster, page, 'Vertical', h_lines, v_lines, date_zones)
-                            if result: all_numbers_data.append(result)
-                            current_cluster = [char]
-                        else: current_cluster.append(char)
+def calculate_confidence_score(number_info):
+    """
+    Tính điểm confidence với logic cải thiện
+    """
+    score = 30  # Điểm base cao hơn
+    
+    try:
+        # Điểm từ dimension line (quan trọng nhất)
+        if number_info.get('is_near_dimension_line', False):
+            score += 50
+        
+        # Điểm từ ink area
+        ink_area = number_info.get('ink_area', 0)
+        if ink_area > 50:
+            score += 25
+        elif ink_area > 20:
+            score += 20
+        elif ink_area > 10:
+            score += 15
+        elif ink_area > 5:
+            score += 10
+        elif ink_area > 1:
+            score += 5
+        else:
+            score -= 15  # Ink area quá thấp
+        
+        # Điểm từ font size
+        font_size = number_info.get('font_size', 0)
+        if font_size > 12:
+            score += 15
+        elif font_size > 8:
+            score += 10
+        elif font_size > 6:
+            score += 5
+        
+        # Điểm từ orientation
+        if number_info.get('orientation') == 'Horizontal':
+            score += 5
+        
+        # Trừ điểm cho vị trí footer
+        bbox = number_info.get('bbox', {})
+        page_height = number_info.get('page_height', 800)
+        if bbox.get('top', 0) > page_height * 0.9:
+            score -= 30
+        
+        # Điểm từ giá trị số (số trong khoảng dimension hợp lý)
+        value = number_info.get('value', 0)
+        if 10 <= value <= 2000:  # Khoảng dimension thông thường
+            score += 10
+        elif 2000 < value <= 3000:
+            score += 5
+        elif value < 10:
+            score -= 10
+        
+        return max(0, min(100, score))
+    
+    except Exception:
+        return 30
+
+def build_number_clusters(chars, orientation='Horizontal'):
+    """
+    Xây dựng clusters số từ chars
+    """
+    clusters = []
+    if not chars:
+        return clusters
+    
+    try:
+        # Sắp xếp chars
+        if orientation == 'Horizontal':
+            sorted_chars = sorted(chars, key=lambda c: (round(c['top'], 1), c['x0']))
+        else:
+            sorted_chars = sorted(chars, key=lambda c: (round(c['x0'], 1), c['top']))
+        
+        current_cluster = []
+        
+        for char in sorted_chars:
+            if char['text'].isdigit():
+                if current_cluster:
+                    last_char = current_cluster[-1]
+                    
+                    # Kiểm tra khoảng cách
+                    if orientation == 'Horizontal':
+                        distance = char['x0'] - last_char['x1']
+                        line_diff = abs(char['top'] - last_char['top'])
+                        max_distance = last_char.get('size', 8) * 0.6
+                    else:
+                        distance = char['top'] - last_char['bottom']
+                        line_diff = abs(char['x0'] - last_char['x0'])
+                        max_distance = last_char.get('size', 8) * 0.6
+                    
+                    if distance <= max_distance and line_diff <= 3:
+                        current_cluster.append(char)
                     else:
                         if current_cluster:
-                            result = process_cluster_for_new_logic(current_cluster, page, 'Vertical', h_lines, v_lines, date_zones)
-                            if result: all_numbers_data.append(result)
-                        current_cluster = []
-                    last_char = char
+                            clusters.append(current_cluster)
+                        current_cluster = [char]
+                else:
+                    current_cluster = [char]
+            else:
                 if current_cluster:
-                    result = process_cluster_for_new_logic(current_cluster, page, 'Vertical', h_lines, v_lines, date_zones)
-                    if result: all_numbers_data.append(result)
-    return all_numbers_data
+                    clusters.append(current_cluster)
+                    current_cluster = []
+        
+        if current_cluster:
+            clusters.append(current_cluster)
+        
+        return clusters
+    
+    except Exception:
+        return []
 
-# [Giữ nguyên tất cả các hàm còn lại...]
-def assign_ink_groups(df, tolerance=1.0):
-    if df.empty or 'Ink Area' not in df.columns:
-        df['Ink Area Group'] = 0
-        return df
-    unique_inks = sorted(df['Ink Area'].unique())
-    if not unique_inks:
-        df['Ink Area Group'] = 0
-        return df
-    group_mapping, current_group_id = {}, 1
-    group_mapping[unique_inks[0]] = current_group_id
-    last_val_in_group = unique_inks[0]
-    for ink in unique_inks[1:]:
-        if ink - last_val_in_group <= tolerance:
-            group_mapping[ink] = current_group_id
+def extract_numbers_from_page(page_elements, h_lines, v_lines):
+    """
+    Trích xuất tất cả các số từ một trang
+    """
+    numbers_data = []
+    
+    try:
+        # Xây dựng alphanumeric strings
+        alphanumeric_strings = build_alphanumeric_strings(page_elements)
+        
+        # Tìm date zones để loại trừ
+        date_zones = []
+        try:
+            if hasattr(page_elements, 'search'):
+                date_zones = page_elements.search(r'\b\d{1,2}/\d{1,2}/\d{4}\b', regex=True) or []
+        except:
+            pass
+        
+        # Xử lý số nằm ngang
+        h_chars = [c for c in page_elements['chars'] if c.get("upright", True)]
+        h_clusters = build_number_clusters(h_chars, 'Horizontal')
+        
+        for cluster in h_clusters:
+            result = process_number_cluster(
+                cluster, page_elements, 'Horizontal', 
+                h_lines, v_lines, alphanumeric_strings, date_zones
+            )
+            if result:
+                numbers_data.append(result)
+        
+        # Xử lý số nằm dọc
+        v_chars = [c for c in page_elements['chars'] if not c.get("upright", True)]
+        if v_chars:
+            # Nhóm theo cột
+            cols = defaultdict(list)
+            for char in v_chars:
+                cols[round(char['x0'], 0)].append(char)
+            
+            for col_chars in cols.values():
+                v_clusters = build_number_clusters(col_chars, 'Vertical')
+                for cluster in v_clusters:
+                    result = process_number_cluster(
+                        cluster, page_elements, 'Vertical',
+                        h_lines, v_lines, alphanumeric_strings, date_zones
+                    )
+                    if result:
+                        numbers_data.append(result)
+        
+        return numbers_data
+    
+    except Exception as e:
+        st.error(f"Lỗi khi trích xuất số: {e}")
+        return []
+
+def process_number_cluster(cluster, page_elements, orientation, h_lines, v_lines, 
+                          alphanumeric_strings, date_zones):
+    """
+    Xử lý một cluster số
+    """
+    if not cluster:
+        return None
+    
+    try:
+        # Tạo chuỗi số
+        number_str = "".join([c['text'] for c in cluster])
+        if orientation == 'Vertical':
+            number_str = number_str[::-1]
+        
+        # Kiểm tra số hợp lệ
+        if not (number_str.isdigit() and 1 <= int(number_str) <= 3500):
+            return None
+        
+        value = int(number_str)
+        
+        # Tạo bbox
+        bbox = {
+            'x0': min(c['x0'] for c in cluster),
+            'x1': max(c['x1'] for c in cluster),
+            'top': min(c['top'] for c in cluster),
+            'bottom': max(c['bottom'] for c in cluster)
+        }
+        
+        # Kiểm tra date zones
+        if is_bbox_in_zones(bbox, date_zones):
+            return None
+        
+        # Kiểm tra alphanumeric strings
+        if is_number_in_alphanumeric(cluster, alphanumeric_strings):
+            return None
+        
+        # Tính ink area
+        # Tạo mock page object để tương thích
+        class MockPage:
+            def __init__(self, elements):
+                self.width = elements['width']
+                self.height = elements['height']
+                self.rects = []
+                self.lines = elements['lines']
+            
+            def crop(self, bbox):
+                return self
+        
+        mock_page = MockPage(page_elements)
+        ink_area = calculate_robust_ink_area(cluster, mock_page)
+        
+        # Loại bỏ ink area quá cao (graphics)
+        if ink_area > 1000:
+            return None
+        
+        # Kiểm tra dimension lines
+        is_dim_line = is_near_dimension_line(bbox, h_lines, v_lines)
+        
+        # Lấy font size
+        font_size = cluster[0].get('size', 0)
+        
+        # Tạo number info
+        number_info = {
+            'value': value,
+            'bbox': bbox,
+            'ink_area': ink_area,
+            'orientation': orientation,
+            'is_near_dimension_line': is_dim_line,
+            'page_height': page_elements['height'],
+            'font_size': font_size
+        }
+        
+        confidence = calculate_confidence_score(number_info)
+        
+        return {
+            'Number': value,
+            'Ink Area': round(ink_area, 2),
+            'Confidence (%)': confidence,
+            'Font Size': font_size,
+            'Orientation': orientation,
+            'Near Dim Line': is_dim_line
+        }
+    
+    except Exception:
+        return None
+
+def is_bbox_in_zones(bbox, zones):
+    """
+    Kiểm tra bbox có nằm trong zones không
+    """
+    try:
+        for zone in zones:
+            if (max(bbox['x0'], zone['x0']) < min(bbox['x1'], zone['x1']) and 
+                max(bbox['top'], zone['top']) < min(bbox['bottom'], zone['bottom'])):
+                return True
+        return False
+    except:
+        return False
+
+def extract_all_numbers_from_pdf(pdf_path):
+    """
+    Trích xuất tất cả số từ PDF
+    """
+    all_numbers = []
+    
+    try:
+        with pdfplumber.open(pdf_path) as pdf:
+            for page_num, page in enumerate(pdf.pages):
+                try:
+                    page_elements = extract_page_elements(page)
+                    h_lines, v_lines = find_dimension_lines(page_elements['lines'])
+                    
+                    page_numbers = extract_numbers_from_page(page_elements, h_lines, v_lines)
+                    
+                    # Thêm thông tin trang
+                    for num_data in page_numbers:
+                        num_data['Page'] = page_num + 1
+                        all_numbers.append(num_data)
+                        
+                except Exception as e:
+                    st.warning(f"Lỗi xử lý trang {page_num + 1}: {e}")
+                    continue
+        
+        return all_numbers
+    
+    except Exception as e:
+        st.error(f"Lỗi mở PDF: {e}")
+        return []
+
+# --- CÁC HÀM XỬ LÝ KÍCH THƯỚC ---
+
+def assign_dimensions_from_numbers(numbers_df):
+    """
+    Gán kích thước từ danh sách số với logic cải thiện
+    """
+    dimensions = {'Length (mm)': '', 'Width (mm)': '', 'Height (mm)': ''}
+    
+    if numbers_df.empty:
+        return dimensions
+    
+    try:
+        # Nhóm theo ink area
+        numbers_df = assign_ink_area_groups(numbers_df)
+        
+        # Tìm nhóm có ít nhất 3 số và confidence cao
+        qualified_groups = numbers_df[
+            (numbers_df['Group Size'] >= 3) & 
+            (numbers_df['Confidence (%)'] >= 40)
+        ]
+        
+        if not qualified_groups.empty:
+            # Chọn nhóm có ink area cao nhất
+            best_group = qualified_groups.loc[qualified_groups['Max Ink Area'].idxmax()]
+            group_id = best_group['Ink Area Group']
+            
+            group_numbers = qualified_groups[qualified_groups['Ink Area Group'] == group_id]
+            unique_numbers = sorted(group_numbers['Number'].unique())
+            
+            # Gán theo thứ tự: lớn nhất = Length, nhỏ nhất = Height, giữa = Width
+            if len(unique_numbers) >= 3:
+                dimensions['Length (mm)'] = unique_numbers[-1]  # Lớn nhất
+                dimensions['Height (mm)'] = unique_numbers[0]   # Nhỏ nhất  
+                dimensions['Width (mm)'] = unique_numbers[1]    # Giữa
+            elif len(unique_numbers) == 2:
+                dimensions['Length (mm)'] = unique_numbers[-1]
+                dimensions['Width (mm)'] = unique_numbers[0]
         else:
-            current_group_id += 1
-            group_mapping[ink] = current_group_id
-        last_val_in_group = ink
-    df['Ink Area Group'] = df['Ink Area'].map(group_mapping)
-    return df
+            # Logic fallback: chọn 3 số có confidence cao nhất
+            high_conf = numbers_df[numbers_df['Confidence (%)'] >= 50]
+            if len(high_conf) >= 3:
+                top_numbers = high_conf.nlargest(3, 'Confidence (%)')['Number'].tolist()
+                top_numbers.sort()
+                
+                dimensions['Length (mm)'] = top_numbers[-1]
+                dimensions['Height (mm)'] = top_numbers[0]
+                if len(top_numbers) >= 2:
+                    dimensions['Width (mm)'] = top_numbers[1] if len(top_numbers) == 3 else top_numbers[0]
+    
+    except Exception as e:
+        st.error(f"Lỗi gán kích thước: {e}")
+    
+    return dimensions
 
-def find_laminate_keywords(pdf_path):
-    target_keywords = ["LAM/MASKING (IF APPLICABLE)","GLUEABLE LAM/TC BLACK (IF APPLICABLE)","FLEX PAPER/PAPER", "GLUEABLE LAM", "RAW", "LAM", "GRAIN"]
-    found_pairs = []
-    with pdfplumber.open(pdf_path) as pdf:
-        for page in pdf.pages:
-            chars = page.chars
-            if not chars: continue
-            chars = sorted(chars, key=lambda c: (round(c["top"], 1), c["x0"]))
-            full_text = "".join(c["text"] for c in chars)
-            for keyword in target_keywords:
-                for pos in [m.start() for m in re.finditer(re.escape(keyword), full_text)]:
-                    keyword_chars = chars[pos:pos + len(keyword)]
-                    if not keyword_chars: continue
-                    keyword_y = sum(c["top"] for c in keyword_chars) / len(keyword_chars)
-                    keyword_x_center = sum(c["x0"] for c in keyword_chars) / len(keyword_chars)
-                    below_word = find_word_below(chars, keyword_y, keyword_x_center, target_keywords)
-                    if below_word: found_pairs.append(f"{keyword}/{below_word}")
-                    else: found_pairs.append(keyword)
-    return found_pairs
+def assign_ink_area_groups(df, tolerance=2.0):
+    """
+    Nhóm các số theo ink area tương tự
+    """
+    if df.empty:
+        return df
+    
+    try:
+        df = df.copy()
+        unique_inks = sorted(df['Ink Area'].unique())
+        
+        groups = {}
+        current_group = 1
+        
+        for ink in unique_inks:
+            assigned = False
+            for group_id, group_inks in groups.items():
+                if any(abs(ink - existing_ink) <= tolerance for existing_ink in group_inks):
+                    groups[group_id].append(ink)
+                    assigned = True
+                    break
+            
+            if not assigned:
+                groups[current_group] = [ink]
+                current_group += 1
+        
+        # Tạo mapping
+        ink_to_group = {}
+        for group_id, inks in groups.items():
+            for ink in inks:
+                ink_to_group[ink] = group_id
+        
+        df['Ink Area Group'] = df['Ink Area'].map(ink_to_group)
+        df['Group Size'] = df.groupby('Ink Area Group')['Number'].transform('count')
+        df['Max Ink Area'] = df.groupby('Ink Area Group')['Ink Area'].transform('max')
+        
+        return df
+    
+    except Exception:
+        df['Ink Area Group'] = 1
+        df['Group Size'] = len(df)
+        df['Max Ink Area'] = df['Ink Area'].max() if not df.empty else 0
+        return df
 
-def find_word_below(chars, keyword_y, keyword_x_center, target_keywords, y_tolerance=50, x_tolerance=100):
-    chars_below = [c for c in chars if c["top"] > keyword_y + 5]
-    if not chars_below: return None
-    chars_below.sort(key=lambda c: c["top"])
-    lines = []
-    current_line, current_y = [], None
-    for char in chars_below:
-        if current_y is None or abs(char["top"] - current_y) <= 3:
-            current_line.append(char)
-            current_y = char["top"]
-        else:
-            if current_line: lines.append(current_line)
-            current_line, current_y = [char], char["top"]
-    if current_line: lines.append(current_line)
-    for line_chars in lines:
-        line_chars.sort(key=lambda c: c["x0"])
-        line_text = "".join(c["text"] for c in line_chars).strip()
-        for keyword in target_keywords:
-            if keyword in line_text:
-                line_x_center = sum(c["x0"] for c in line_chars) / len(line_chars)
-                if abs(line_x_center - keyword_x_center) <= x_tolerance: return keyword
-    return None
+# --- CÁC HÀM XỬ LÝ KEYWORDS ---
 
-def process_laminate_result(laminate_string):
-    target_keywords = ["FLEX PAPER/PAPER", "GLUEABLE LAM", "LAM", "RAW", "GRAIN"]
-    if not laminate_string or laminate_string.strip() == "": return ""
-    parts = [part.strip() for part in laminate_string.split(" / ")]
-    if not parts: return ""
-    clusters = [part for part in parts if "/" in part]
-    if not clusters:
-        for keyword in target_keywords:
-            if keyword in parts: return keyword
-        return parts[-1] if parts else ""
-    best_cluster, best_priority = "", float('inf')
-    for cluster in clusters:
-        cluster_keywords = cluster.split("/")
-        cluster_priority = float('inf')
-        for keyword in cluster_keywords:
-            keyword = keyword.strip()
-            if keyword in target_keywords:
-                priority = target_keywords.index(keyword)
-                if priority < cluster_priority: cluster_priority = priority
-        if cluster_priority < best_priority: best_priority, best_cluster = cluster_priority, cluster
-    if not best_cluster: best_cluster = clusters[-1]
-    return best_cluster
+def extract_laminate_info(pdf_path):
+    """
+    Trích xuất thông tin laminate
+    """
+    keywords = [
+        "LAM/MASKING (IF APPLICABLE)",
+        "GLUEABLE LAM/TC BLACK (IF APPLICABLE)", 
+        "FLEX PAPER/PAPER",
+        "GLUEABLE LAM",
+        "RAW", 
+        "LAM", 
+        "GRAIN"
+    ]
+    
+    found_keywords = []
+    
+    try:
+        with pdfplumber.open(pdf_path) as pdf:
+            for page in pdf.pages:
+                text = page.extract_text() or ""
+                for keyword in keywords:
+                    if keyword in text.upper():
+                        found_keywords.append(keyword)
+                        break  # Chỉ lấy keyword đầu tiên tìm thấy
+        
+        # Xử lý kết quả
+        if found_keywords:
+            return found_keywords[0]  # Trả về keyword đầu tiên
+        
+        return ""
+    
+    except Exception:
+        return ""
 
-def find_profile_a(pdf_path):
-    profile_value = ""
-    with pdfplumber.open(pdf_path) as pdf:
-        for page in pdf.pages:
-            text = page.extract_text()
-            if text:
+def extract_profile_info(pdf_path):
+    """
+    Trích xuất thông tin profile
+    """
+    try:
+        with pdfplumber.open(pdf_path) as pdf:
+            for page in pdf.pages:
+                text = page.extract_text() or ""
                 match = re.search(r"PROFILE\s*:*\s*(\S+)", text, re.IGNORECASE)
-                if match: return match.group(1)
-    return profile_value
+                if match:
+                    return match.group(1)
+        return ""
+    except:
+        return ""
 
-def extract_edgeband_and_foil_keywords(pdf_path):
+def extract_edgeband_foil_info(pdf_path):
     """
-    Quét PDF để đếm và tạo nhãn L và S cho từng danh mục riêng biệt.
+    Trích xuất thông tin edgeband và foil
     """
-    edgeband_L_keywords = {"EDGEBAND"}
-    edgeband_S_keywords = {"DNABEGDE"}
-    foil_L_keywords = {"FOIL"}
-    foil_S_keywords = {"LIOF"}
-
-    edgeband_L_count, edgeband_S_count = 0, 0
-    foil_L_count, foil_S_count = 0, 0
-
-    with pdfplumber.open(pdf_path) as pdf:
-        for page in pdf.pages:
-            words = page.extract_words(x_tolerance=2)
-            if not words: continue
-            
-            page_words = [w["text"].upper() for w in words]
-
-            edgeband_L_count += sum(1 for t in page_words if t in edgeband_L_keywords)
-            edgeband_S_count += sum(1 for t in page_words if t in edgeband_S_keywords)
-            foil_L_count += sum(1 for t in page_words if t in foil_L_keywords)
-            foil_S_count += sum(1 for t in page_words if t in foil_S_keywords)
-            
-    # Áp dụng giới hạn
-    edgeband_L_count, edgeband_S_count = min(edgeband_L_count, 2), min(edgeband_S_count, 2)
-    foil_L_count, foil_S_count = min(foil_L_count, 2), min(foil_S_count, 2)
-
-    # Tạo chuỗi kết quả cho Edgeband
-    edgeband_result = ""
-    if edgeband_L_count > 0: edgeband_result += f"{edgeband_L_count}L"
-    if edgeband_S_count > 0: edgeband_result += f"{edgeband_S_count}S"
-
-    # Tạo chuỗi kết quả cho Foil
-    foil_result = ""
-    if foil_L_count > 0: foil_result += f"{foil_L_count}L"
-    if foil_S_count > 0: foil_result += f"{foil_S_count}S"
-
-    return {'Edgeband': edgeband_result, 'Foil': foil_result}
-
-def check_dimensions_status(length, width, height):
-    if (length and str(length) != '' and str(length) != 'ERROR' and width and str(width) != '' and str(width) != 'ERROR' and height and str(height) != '' and str(height) != 'ERROR'):
-        return 'Done'
-    return 'Recheck'
-
-def process_single_pdf(pdf_path, original_filename):
-    numbers = extract_all_numbers(pdf_path)
+    result = {'Edgeband': '', 'Foil': ''}
     
-    dim_map = {}
-    if numbers:
-        full_df = pd.DataFrame(numbers)
-        full_df = assign_ink_groups(full_df, tolerance=1.0)
-        full_df['Ink Area Group Count'] = full_df.groupby('Ink Area Group')['Ink Area'].transform('count')
+    try:
+        edgeband_patterns = {
+            'L': ['EDGEBAND'],
+            'S': ['DNABEGDE']
+        }
         
-        qualified_groups_df = full_df[full_df['Ink Area Group Count'] >= 3].copy()
+        foil_patterns = {
+            'L': ['FOIL'],  
+            'S': ['LIOF']
+        }
         
-        if not qualified_groups_df.empty:
-            qualified_groups_df['Max Ink Area'] = qualified_groups_df.groupby('Ink Area Group')['Ink Area'].transform('max')
-            sorted_qualified_groups = qualified_groups_df.sort_values(by='Max Ink Area', ascending=False)
-            top_ink_area_group_id = sorted_qualified_groups.iloc[0]['Ink Area Group']
-            top_group_df = qualified_groups_df[qualified_groups_df['Ink Area Group'] == top_ink_area_group_id]
-            unique_numbers_in_group = sorted(top_group_df['Number'].unique())
+        with pdfplumber.open(pdf_path) as pdf:
+            for page in pdf.pages:
+                text = page.extract_text() or ""
+                text_upper = text.upper()
+                
+                # Đếm edgeband
+                edgeband_l = sum(text_upper.count(pattern) for pattern in edgeband_patterns['L'])
+                edgeband_s = sum(text_upper.count(pattern) for pattern in edgeband_patterns['S'])
+                
+                # Đếm foil  
+                foil_l = sum(text_upper.count(pattern) for pattern in foil_patterns['L'])
+                foil_s = sum(text_upper.count(pattern) for pattern in foil_patterns['S'])
+        
+        # Giới hạn tối đa 2
+        edgeband_l = min(edgeband_l, 2)
+        edgeband_s = min(edgeband_s, 2)
+        foil_l = min(foil_l, 2)
+        foil_s = min(foil_s, 2)
+        
+        # Tạo chuỗi kết quả
+        if edgeband_l > 0:
+            result['Edgeband'] += f"{edgeband_l}L"
+        if edgeband_s > 0:
+            result['Edgeband'] += f"{edgeband_s}S"
             
-            if len(unique_numbers_in_group) >= 1: dim_map[unique_numbers_in_group[-1]] = 'Length (mm)'
-            if len(unique_numbers_in_group) >= 2: dim_map[unique_numbers_in_group[0]] = 'Height (mm)'
-            if len(unique_numbers_in_group) >= 3: dim_map[unique_numbers_in_group[1]] = 'Width (mm)'
-        else: # Logic dự phòng
-            high_confidence_dims = full_df[full_df['Confidence (%)'] > 50]
-            if not high_confidence_dims.empty:
-                top_dims = high_confidence_dims.drop_duplicates(subset=['Number']).head(3)
-                sorted_dims = top_dims.sort_values(by='Number', ascending=False)['Number'].tolist()
-                if len(sorted_dims) >= 1: dim_map[sorted_dims[0]] = 'Length (mm)'
-                if len(sorted_dims) >= 3: dim_map[sorted_dims[1]] = 'Width (mm)'; dim_map[sorted_dims[2]] = 'Height (mm)'
-                elif len(sorted_dims) == 2: dim_map[sorted_dims[1]] = 'Width (mm)'
-
-    laminate_pairs = find_laminate_keywords(pdf_path)
-    laminate_raw_result = " / ".join(laminate_pairs) if laminate_pairs else ""
-    laminate_result = process_laminate_result(laminate_raw_result) if laminate_pairs else ""
-    profile_a_result = find_profile_a(pdf_path)
-    edgeband_foil_results = extract_edgeband_and_foil_keywords(pdf_path)
-
-    final_result = {
-        'Drawing #': os.path.splitext(original_filename)[0],
-        'Length (mm)': next((k for k, v in dim_map.items() if v == 'Length (mm)'), ''),
-        'Width (mm)': next((k for k, v in dim_map.items() if v == 'Width (mm)'), ''),
-        'Height (mm)': next((k for k, v in dim_map.items() if v == 'Height (mm)'), ''),
-        'Laminate': laminate_result,
-        'Edgeband': edgeband_foil_results['Edgeband'],
-        'Foil': edgeband_foil_results['Foil'],
-        'Profile': profile_a_result
-    }
+        if foil_l > 0:
+            result['Foil'] += f"{foil_l}L"
+        if foil_s > 0:
+            result['Foil'] += f"{foil_s}S"
     
-    final_result['Status'] = check_dimensions_status(final_result['Length (mm)'], final_result['Width (mm)'], final_result['Height (mm)'])
-    return final_result
+    except Exception:
+        pass
+    
+    return result
+
+# --- HÀM XỬ LÝ PDF CHÍNH ---
+
+def process_single_pdf(pdf_path, filename):
+    """
+    Xử lý một file PDF
+    """
+    try:
+        # Trích xuất numbers
+        numbers_data = extract_all_numbers_from_pdf(pdf_path)
+        
+        # Tạo DataFrame
+        if numbers_data:
+            numbers_df = pd.DataFrame(numbers_data)
+            dimensions = assign_dimensions_from_numbers(numbers_df)
+        else:
+            dimensions = {'Length (mm)': '', 'Width (mm)': '', 'Height (mm)': ''}
+        
+        # Trích xuất các thông tin khác
+        laminate = extract_laminate_info(pdf_path)
+        profile = extract_profile_info(pdf_path)
+        edgeband_foil = extract_edgeband_foil_info(pdf_path)
+        
+        # Kiểm tra status
+        status = 'Done' if all(dimensions.values()) else 'Recheck'
+        
+        result = {
+            'Drawing #': os.path.splitext(filename)[0],
+            'Length (mm)': dimensions['Length (mm)'],
+            'Width (mm)': dimensions['Width (mm)'],
+            'Height (mm)': dimensions['Height (mm)'],
+            'Laminate': laminate,
+            'Edgeband': edgeband_foil['Edgeband'],
+            'Foil': edgeband_foil['Foil'],
+            'Profile': profile,
+            'Status': status
+        }
+        
+        return result, numbers_data
+    
+    except Exception as e:
+        error_result = {
+            'Drawing #': os.path.splitext(filename)[0],
+            'Length (mm)': 'ERROR',
+            'Width (mm)': 'ERROR', 
+            'Height (mm)': 'ERROR',
+            'Laminate': 'ERROR',
+            'Edgeband': 'ERROR',
+            'Foil': 'ERROR',
+            'Profile': 'ERROR',
+            'Status': 'ERROR'
+        }
+        return error_result, []
+
+# --- UTILITY FUNCTIONS ---
 
 def save_uploaded_file(uploaded_file):
+    """
+    Lưu file upload vào temporary file
+    """
     try:
         with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp_file:
             tmp_file.write(uploaded_file.getvalue())
             return tmp_file.name
     except Exception as e:
-        st.error(f"Error saving file: {str(e)}")
+        st.error(f"Lỗi lưu file: {e}")
         return None
 
 def to_excel(df):
+    """
+    Chuyển DataFrame sang Excel
+    """
     output = io.BytesIO()
     try:
-        with pd.ExcelWriter(output, engine='xlsxwriter') as writer: df.to_excel(writer, index=False, sheet_name='PDF_Extraction_Results')
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            df.to_excel(writer, index=False, sheet_name='Results')
+        return output.getvalue()
     except ImportError:
         try:
-            with pd.ExcelWriter(output, engine='openpyxl') as writer: df.to_excel(writer, index=False, sheet_name='PDF_Extraction_Results')
-        except ImportError: return None
-    return output.getvalue()
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                df.to_excel(writer, index=False, sheet_name='Results')
+            return output.getvalue()
+        except ImportError:
+            return None
+
+# --- MAIN STREAMLIT APP ---
 
 def main():
-    st.title("📄 Trình trích xuất dữ liệu PDF")
-    st.write("Tự động nhận diện kích thước (Dài, Rộng, Cao) và các thông tin khác từ bản vẽ kỹ thuật.")
-
+    st.title("📄 PDF Data Extractor - Phiên bản cải tiến")
+    st.markdown("Trích xuất kích thước và thông tin từ bản vẽ kỹ thuật PDF")
+    
+    # Sidebar cho debug
+    with st.sidebar:
+        st.header("🔧 Debug Options")
+        show_debug = st.checkbox("Hiển thị debug info")
+        show_numbers_detail = st.checkbox("Hiển thị chi tiết số")
+    
+    # File uploader
     uploaded_files = st.file_uploader(
-        "Kéo và thả file PDF vào đây hoặc nhấn để chọn",
+        "Chọn file PDF",
         type="pdf",
         accept_multiple_files=True,
-        label_visibility="collapsed"
+        help="Có thể chọn nhiều file cùng lúc"
     )
     
     if uploaded_files:
-        all_final_results = []
-        with st.spinner(f"⏳ Đang xử lý {len(uploaded_files)} file... Vui lòng chờ một lát."):
-            for uploaded_file in uploaded_files:
+        total_files = len(uploaded_files)
+        st.info(f"📁 Đã chọn {total_files} file(s)")
+        
+        # Process button
+        if st.button("🚀 Bắt đầu xử lý", type="primary"):
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            
+            all_results = []
+            all_numbers_data = []
+            
+            for i, uploaded_file in enumerate(uploaded_files):
+                status_text.text(f"Đang xử lý {uploaded_file.name}...")
+                
                 temp_path = save_uploaded_file(uploaded_file)
                 if temp_path:
                     try:
-                        final_result = process_single_pdf(temp_path, uploaded_file.name)
-                        all_final_results.append(final_result)
+                        result, numbers_data = process_single_pdf(temp_path, uploaded_file.name)
+                        all_results.append(result)
+                        
+                        if show_numbers_detail and numbers_data:
+                            all_numbers_data.extend([
+                                {**num_data, 'File': uploaded_file.name} 
+                                for num_data in numbers_data
+                            ])
+                        
                     except Exception as e:
-                        st.error(f"Lỗi khi xử lý file {uploaded_file.name}: {e}")
-                        error_result = {
-                            'Drawing #': os.path.splitext(uploaded_file.name)[0],
-                            'Length (mm)': 'LỖI', 'Width (mm)': 'LỖI', 'Height (mm)': 'LỖI',
-                            'Laminate': 'LỖI', 'Edgeband': 'LỖI', 'Foil': 'LỖI',
-                            'Profile': 'LỖI', 'Status': 'LỖI'
-                        }
-                        all_final_results.append(error_result)
+                        st.error(f"Lỗi xử lý {uploaded_file.name}: {e}")
                     finally:
                         if os.path.exists(temp_path):
                             os.unlink(temp_path)
+                
+                progress_bar.progress((i + 1) / total_files)
             
-        if all_final_results:
-            st.success(f"✅ Xử lý hoàn tất {len(all_final_results)} file!")
-            st.markdown("---")
-            st.subheader("📊 Kết quả trích xuất")
-            final_results_df = pd.DataFrame(all_final_results)
-            st.dataframe(final_results_df, use_container_width=True, hide_index=True)
+            status_text.text("✅ Hoàn thành!")
             
-            st.markdown("---")
-            
-            excel_data = to_excel(final_results_df)
-            if excel_data:
-                st.download_button(
-                    label="📥 Tải về file Excel",
-                    data=excel_data,
-                    file_name="pdf_extraction_results.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
-            else:
-                st.button("📊 Excel (Không khả dụng)", disabled=True, help="Cần cài đặt thư viện xlsxwriter hoặc openpyxl")
+            # Hiển thị kết quả
+            if all_results:
+                st.success(f"✅ Đã xử lý thành công {len(all_results)} file(s)")
+                
+                # Kết quả chính
+                st.subheader("📊 Kết quả trích xuất")
+                results_df = pd.DataFrame(all_results)
+                st.dataframe(results_df, use_container_width=True, hide_index=True)
+                
+                # Thống kê
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    done_count = sum(1 for r in all_results if r['Status'] == 'Done')
+                    st.metric("✅ Hoàn thành", done_count)
+                with col2:
+                    recheck_count = sum(1 for r in all_results if r['Status'] == 'Recheck')
+                    st.metric("⚠️ Cần kiểm tra", recheck_count)
+                with col3:
+                    error_count = sum(1 for r in all_results if r['Status'] == 'ERROR')
+                    st.metric("❌ Lỗi", error_count)
+                
+                # Download button
+                excel_data = to_excel(results_df)
+                if excel_data:
+                    st.download_button(
+                        label="📥 Tải xuống Excel",
+                        data=excel_data,
+                        file_name="pdf_extraction_results.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
+                
+                # Debug info
+                if show_debug and all_numbers_data:
+                    st.subheader("🔍 Chi tiết số được phát hiện")
+                    numbers_df = pd.DataFrame(all_numbers_data)
+                    st.dataframe(numbers_df, use_container_width=True, hide_index=True)
     
     else:
-        st.info("👆 Vui lòng tải lên một hoặc nhiều file PDF để bắt đầu.")
+        st.info("👆 Vui lòng chọn file PDF để bắt đầu")
     
+    # Footer
     st.markdown("---")
     st.markdown(
         """
         <div style='text-align: center; color: #666; font-size: 0.9em;'>
-        PDF Data Extractor | Built with Streamlit
+        🛠️ PDF Data Extractor v2.0 | Được tối ưu hóa cho bản vẽ kỹ thuật
         </div>
         """, 
         unsafe_allow_html=True
