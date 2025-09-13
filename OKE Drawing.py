@@ -141,12 +141,32 @@ def extract_all_numbers(pdf_path):
                     if result: all_numbers_data.append(result)
     return all_numbers_data
 
+def assign_ink_groups(df, tolerance=1.0):
+    if df.empty:
+        df['Ink Area Group'] = 0
+        return df
+    unique_inks = sorted(df['Ink Area'].unique())
+    if not unique_inks:
+        df['Ink Area Group'] = 0
+        return df
+    group_mapping, current_group_id = {}, 1
+    group_mapping[unique_inks[0]] = current_group_id
+    last_val_in_group = unique_inks[0]
+    for ink in unique_inks[1:]:
+        if ink - last_val_in_group <= tolerance: group_mapping[ink] = current_group_id
+        else:
+            current_group_id += 1
+            group_mapping[ink] = current_group_id
+        last_val_in_group = ink
+    df['Ink Area Group'] = df['Ink Area'].map(group_mapping)
+    return df
+
 # --- CÁC HÀM CŨ ĐƯỢC GIỮ LẠI ---
 def find_laminate_keywords(pdf_path):
     target_keywords = ["LAM/MASKING (IF APPLICABLE)","GLUEABLE LAM/TC BLACK (IF APPLICABLE)","FLEX PAPER/PAPER", "GLUEABLE LAM", "RAW", "LAM", "GRAIN"]
     found_pairs = []
     with pdfplumber.open(pdf_path) as pdf:
-        for page_num, page in enumerate(pdf.pages, start=1):
+        for page in pdf.pages:
             chars = page.chars
             if not chars: continue
             chars = sorted(chars, key=lambda c: (round(c["top"], 1), c["x0"]))
@@ -197,7 +217,8 @@ def process_laminate_result(laminate_string):
         return parts[-1] if parts else ""
     best_cluster, best_priority = "", float('inf')
     for cluster in clusters:
-        cluster_keywords, cluster_priority = cluster.split("/"), float('inf')
+        cluster_keywords = cluster.split("/")
+        cluster_priority = float('inf')
         for keyword in cluster_keywords:
             keyword = keyword.strip()
             if keyword in target_keywords:
@@ -248,17 +269,13 @@ def check_dimensions_status(length, width, height):
     return 'Recheck'
 
 # --- HÀM process_single_pdf ĐÃ ĐƯỢC VIẾT LẠI HOÀN TOÀN ---
-
 def process_single_pdf(pdf_path, original_filename):
-    """
-    Process a single PDF file using the new dimension logic and combine with other data.
-    """
     numbers = extract_all_numbers(pdf_path)
     
     dim_map = {}
     if numbers:
         full_df = pd.DataFrame(numbers)
-        full_df['Ink Area Group'] = full_df['Ink Area'].round(0)
+        full_df = assign_ink_groups(full_df, tolerance=1.0)
         full_df['Ink Area Group Count'] = full_df.groupby('Ink Area Group')['Ink Area'].transform('count')
         
         qualified_groups_df = full_df[full_df['Ink Area Group Count'] >= 3].copy()
@@ -273,7 +290,7 @@ def process_single_pdf(pdf_path, original_filename):
             if len(unique_numbers_in_group) >= 1: dim_map[unique_numbers_in_group[-1]] = 'Length (mm)'
             if len(unique_numbers_in_group) >= 2: dim_map[unique_numbers_in_group[0]] = 'Height (mm)'
             if len(unique_numbers_in_group) >= 3: dim_map[unique_numbers_in_group[1]] = 'Width (mm)'
-        else:
+        else: # Logic dự phòng
             high_confidence_dims = full_df[full_df['Confidence (%)'] > 50]
             if not high_confidence_dims.empty:
                 top_dims = high_confidence_dims.drop_duplicates(subset=['Number']).head(3)
@@ -363,33 +380,3 @@ def main():
             status_text.empty()
             
             if all_final_results:
-                st.markdown("---")
-                st.subheader("📊 Final Results")
-                final_results_df = pd.DataFrame(all_final_results)
-                st.dataframe(final_results_df, use_container_width=True, hide_index=True)
-                
-                st.markdown("---")
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    csv = final_results_df.to_csv(index=False).encode('utf-8')
-                    st.download_button(label="📄 Download CSV", data=csv, file_name="pdf_extraction_results.csv", mime="text/csv")
-                
-                with col2:
-                    excel_data = to_excel(final_results_df)
-                    if excel_data:
-                        st.download_button(label="📊 Download Excel", data=excel_data, file_name="pdf_extraction_results.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-                    else:
-                        st.button("📊 Excel (Not Available)", disabled=True, help="Excel export requires xlsxwriter or openpyxl package")
-                
-            else:
-                st.error("No results to display!")
-    
-    else:
-        st.info("👆 Please upload PDF files to get started")
-    
-    st.markdown("---")
-    st.markdown("<div style='text-align: center; color: #666; font-size: 0.9em;'>PDF Data Extractor | Built with Streamlit</div>", unsafe_allow_html=True)
-
-if __name__ == "__main__":
-    main()
