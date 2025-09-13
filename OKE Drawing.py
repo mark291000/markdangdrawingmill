@@ -256,7 +256,6 @@ def check_dimensions_status(length, width, height):
     return 'Recheck'
 
 # --- HÀM process_single_pdf ĐÃ ĐƯỢC VIẾT LẠI HOÀN TOÀN ---
-
 def process_single_pdf(pdf_path, original_filename):
     numbers = extract_all_numbers(pdf_path)
     
@@ -291,7 +290,6 @@ def process_single_pdf(pdf_path, original_filename):
     laminate_raw_result = " / ".join(laminate_pairs) if laminate_pairs else ""
     laminate_result = process_laminate_result(laminate_raw_result) if laminate_pairs else ""
     profile_a_result = find_profile_a(pdf_path)
-    # Gọi hàm mới
     edge_foil_label = extract_ls_label_for_edge_foil(pdf_path)
 
     final_result = {
@@ -300,7 +298,7 @@ def process_single_pdf(pdf_path, original_filename):
         'Width (mm)': next((k for k, v in dim_map.items() if v == 'Width (mm)'), ''),
         'Height (mm)': next((k for k, v in dim_map.items() if v == 'Height (mm)'), ''),
         'Laminate': laminate_result,
-        'Edge/Foil': edge_foil_label, # Thay đổi ở đây
+        'Edge/Foil': edge_foil_label,
         'Profile': profile_a_result
     }
     
@@ -327,7 +325,7 @@ def to_excel(df):
         except ImportError: return None
     return output.getvalue()
 
-# ===== STREAMLIT UI (ĐÃ SỬA LỖI VÀ HOÀN THIỆN) =====
+# ===== GIAO DIỆN STREAMLIT MỚI (ĐÃ SỬA LỖI VÀ HOÀN THIỆN) =====
 def main():
     st.title("📄 Trình trích xuất dữ liệu PDF")
     st.write("Tự động nhận diện kích thước (Dài, Rộng, Cao) và các thông tin khác từ bản vẽ kỹ thuật.")
@@ -385,4 +383,14 @@ def main():
         st.info("👆 Vui lòng tải lên một hoặc nhiều file PDF để bắt đầu.")
     
     st.markdown("---")
-    st.markdown("<div style='text-align: center; color: #666; font-size: 0.9em;'>PDF Data Extractor | Built with Streamlit</div>", unsafe_
+    st.markdown(
+        """
+        <div style='text-align: center; color: #666; font-size: 0.9em;'>
+        PDF Data Extractor | Built with Streamlit
+        </div>
+        """, 
+        unsafe_allow_html=True
+    )
+
+if __name__ == "__main__":
+    main()
