@@ -140,7 +140,7 @@ def extract_all_numbers(pdf_path):
                     if result: all_numbers_data.append(result)
     return all_numbers_data
 
-# --- CÁC HÀM CŨ ĐƯỢC GIỮ LẠI CHO CÁC THÔNG TIN KHÁC ---
+# --- CÁC HÀM CŨ ĐƯỢC GIỮ LẠI ---
 
 def find_laminate_keywords(pdf_path):
     target_keywords = ["LAM/MASKING (IF APPLICABLE)","GLUEABLE LAM/TC BLACK (IF APPLICABLE)","FLEX PAPER/PAPER", "GLUEABLE LAM", "RAW", "LAM", "GRAIN"]
@@ -339,7 +339,7 @@ def to_excel(df):
         except ImportError: return None
     return output.getvalue()
 
-# ===== STREAMLIT UI (Không thay đổi) =====
+# ===== STREAMLIT UI =====
 def main():
     st.title("📄 PDF Data Extractor")
     st.markdown("---")
@@ -367,4 +367,48 @@ def main():
                         os.unlink(temp_path)
                     except Exception as e:
                         st.error(f"Error processing {uploaded_file.name}: {str(e)}")
-                        error_result = {'Drawing #': os.path.splitext(uploaded_file.name)[0], 'Length (mm)': 'ERROR', 'Width (mm)': 'ERROR', 'Height
+                        # DÒNG ĐÃ SỬA LỖI
+                        error_result = {
+                            'Drawing #': os.path.splitext(uploaded_file.name)[0],
+                            'Length (mm)': 'ERROR', 'Width (mm)': 'ERROR', 'Height (mm)': 'ERROR',
+                            'Laminate': 'ERROR', 'Edgeband': 'ERROR', 'Foil': 'ERROR',
+                            'Profile': 'ERROR', 'Status': 'ERROR'
+                        }
+                        all_final_results.append(error_result)
+                        if temp_path and os.path.exists(temp_path):
+                            os.unlink(temp_path)
+            
+            progress_bar.empty()
+            status_text.empty()
+            
+            if all_final_results:
+                st.markdown("---")
+                st.subheader("📊 Final Results")
+                final_results_df = pd.DataFrame(all_final_results)
+                st.dataframe(final_results_df, use_container_width=True, hide_index=True)
+                
+                st.markdown("---")
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    csv = final_results_df.to_csv(index=False).encode('utf-8')
+                    st.download_button(label="📄 Download CSV", data=csv, file_name="pdf_extraction_results.csv", mime="text/csv")
+                
+                with col2:
+                    excel_data = to_excel(final_results_df)
+                    if excel_data:
+                        st.download_button(label="📊 Download Excel", data=excel_data, file_name="pdf_extraction_results.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                    else:
+                        st.button("📊 Excel (Not Available)", disabled=True, help="Excel export requires xlsxwriter or openpyxl package")
+                
+            else:
+                st.error("No results to display!")
+    
+    else:
+        st.info("👆 Please upload PDF files to get started")
+    
+    st.markdown("---")
+    st.markdown("<div style='text-align: center; color: #666; font-size: 0.9em;'>PDF Data Extractor | Built with Streamlit</div>", unsafe_allow_html=True)
+
+if __name__ == "__main__":
+    main()
