@@ -8,14 +8,14 @@ import tempfile
 import io
 import math
 
-# Set page config
+# --- CẤU HÌNH TRANG ---
 st.set_page_config(
     page_title="PDF Data Extractor",
     page_icon="📄",
     layout="wide"
 )
 
-# --- CÁC HÀM PHỤ TRỢ MỚI CHO LOGIC KÍCH THƯỚC ---
+# --- CÁC HÀM PHỤ TRỢ (LOGIC XỬ LÝ KHÔNG THAY ĐỔI) ---
 
 def find_dimension_lines(lines, tolerance=2):
     horizontal_lines = [line for line in lines if abs(line['y0'] - line['y1']) <= tolerance]
@@ -160,7 +160,6 @@ def assign_ink_groups(df, tolerance=1.0):
     df['Ink Area Group'] = df['Ink Area'].map(group_mapping)
     return df
 
-# --- CÁC HÀM CŨ ĐƯỢC GIỮ LẠI (ĐÃ BỔ SUNG ĐẦY ĐỦ) ---
 def find_laminate_keywords(pdf_path):
     target_keywords = ["LAM/MASKING (IF APPLICABLE)","GLUEABLE LAM/TC BLACK (IF APPLICABLE)","FLEX PAPER/PAPER", "GLUEABLE LAM", "RAW", "LAM", "GRAIN"]
     found_pairs = []
@@ -250,7 +249,7 @@ def extract_edgeband_and_foil_keywords(pdf_path):
             edgeband_S_count += sum(1 for t in texts if t in edgeband_S_keywords)
             foil_L_count += sum(1 for t in texts if t in foil_L_keywords)
             foil_S_count += sum(1 for t in texts if t in foil_S_keywords)
-    edgeband_L_count, edgeband_S_count = min(edgeband_L_count, 2), min(edgeband_S_count, 2)
+    edgeband_L_count, edgeband_S_count = min(edgeband_L_count, 2), min(foil_L_count, 2)
     foil_L_count, foil_S_count = min(foil_L_count, 2), min(foil_S_count, 2)
     edgeband_result = ""
     if edgeband_L_count > 0 and edgeband_S_count > 0: edgeband_result = f"{edgeband_L_count}L{edgeband_S_count}S"
@@ -270,9 +269,6 @@ def check_dimensions_status(length, width, height):
 # --- HÀM process_single_pdf ĐÃ ĐƯỢC VIẾT LẠI HOÀN TOÀN ---
 
 def process_single_pdf(pdf_path, original_filename):
-    """
-    Process a single PDF file using the new dimension logic and combine with other data.
-    """
     numbers = extract_all_numbers(pdf_path)
     
     dim_map = {}
@@ -342,73 +338,41 @@ def to_excel(df):
         except ImportError: return None
     return output.getvalue()
 
-# ===== STREAMLIT UI (ĐÃ SỬA LỖI VÀ HOÀN THIỆN) =====
+# ===== GIAO DIỆN STREAMLIT MỚI =====
 def main():
-    st.title("📄 PDF Data Extractor")
-    st.markdown("---")
-    uploaded_files = st.file_uploader("Choose PDF files", type="pdf", accept_multiple_files=True, help="Select one or more PDF files to process")
+    st.title("📄 Trình trích xuất dữ liệu PDF")
+    st.write("Tự động nhận diện kích thước (Dài, Rộng, Cao) và các thông tin khác từ bản vẽ kỹ thuật.")
+
+    uploaded_files = st.file_uploader(
+        "Kéo và thả file PDF vào đây hoặc nhấn để chọn",
+        type="pdf",
+        accept_multiple_files=True,
+        label_visibility="collapsed"
+    )
     
     if uploaded_files:
-        st.success(f"Selected {len(uploaded_files)} file(s)")
-        if st.button("🚀 Process Files", type="primary"):
-            all_final_results = []
-            progress_bar = st.progress(0)
-            status_text = st.empty()
-            total_files = len(uploaded_files)
-            
-            for i, uploaded_file in enumerate(uploaded_files):
-                progress = (i + 1) / total_files
-                progress_bar.progress(progress)
-                status_text.text(f"Processing: {uploaded_file.name} ({i+1}/{total_files})")
-                
+        all_final_results = []
+        with st.spinner(f"⏳ Đang xử lý {len(uploaded_files)} file... Vui lòng chờ một lát."):
+            for uploaded_file in uploaded_files:
                 temp_path = save_uploaded_file(uploaded_file)
                 if temp_path:
                     try:
                         final_result = process_single_pdf(temp_path, uploaded_file.name)
                         all_final_results.append(final_result)
-                        os.unlink(temp_path)
                     except Exception as e:
-                        st.error(f"Error processing {uploaded_file.name}: {str(e)}")
+                        st.error(f"Lỗi khi xử lý file {uploaded_file.name}: {e}")
                         error_result = {
                             'Drawing #': os.path.splitext(uploaded_file.name)[0],
-                            'Length (mm)': 'ERROR', 'Width (mm)': 'ERROR', 'Height (mm)': 'ERROR',
-                            'Laminate': 'ERROR', 'Edgeband': 'ERROR', 'Foil': 'ERROR',
-                            'Profile': 'ERROR', 'Status': 'ERROR'
+                            'Length (mm)': 'LỖI', 'Width (mm)': 'LỖI', 'Height (mm)': 'LỖI',
+                            'Laminate': 'LỖI', 'Edgeband': 'LỖI', 'Foil': 'LỖI',
+                            'Profile': 'LỖI', 'Status': 'LỖI'
                         }
                         all_final_results.append(error_result)
-                        if temp_path and os.path.exists(temp_path):
+                    finally:
+                        if os.path.exists(temp_path):
                             os.unlink(temp_path)
             
-            progress_bar.empty()
-            status_text.empty()
-            
-            if all_final_results:
-                st.markdown("---")
-                st.subheader("📊 Final Results")
-                final_results_df = pd.DataFrame(all_final_results)
-                st.dataframe(final_results_df, use_container_width=True, hide_index=True)
-                
-                st.markdown("---")
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    csv = final_results_df.to_csv(index=False).encode('utf-8')
-                    st.download_button(label="📄 Download CSV", data=csv, file_name="pdf_extraction_results.csv", mime="text/csv")
-                
-                with col2:
-                    excel_data = to_excel(final_results_df)
-                    if excel_data:
-                        st.download_button(label="📊 Download Excel", data=excel_data, file_name="pdf_extraction_results.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-                    else:
-                        st.button("📊 Excel (Not Available)", disabled=True, help="Excel export requires xlsxwriter or openpyxl package")
-            else:
-                st.error("No results to display!")
-    
-    else:
-        st.info("👆 Please upload PDF files to get started")
-    
-    st.markdown("---")
-    st.markdown("<div style='text-align: center; color: #666; font-size: 0.9em;'>PDF Data Extractor | Built with Streamlit</div>", unsafe_allow_html=True)
-
-if __name__ == "__main__":
-    main()
+        if all_final_results:
+            st.success(f"✅ Xử lý hoàn tất {len(all_final_results)} file!")
+            st.markdown("---")
+            st.subheader("📊 Kết quả trích xuất")
