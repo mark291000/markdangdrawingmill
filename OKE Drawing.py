@@ -15,7 +15,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# --- CÁC HÀM PHỤ TRỢ (LOGIC XỬ LÝ KHÔNG THAY ĐỔI) ---
+# --- CÁC HÀM PHỤ TRỢ (LOGIC XỬ LÝ) ---
 
 def find_dimension_lines(lines, tolerance=2):
     horizontal_lines = [line for line in lines if abs(line['y0'] - line['y1']) <= tolerance]
@@ -39,14 +39,6 @@ def is_near_dimension_line(number_bbox, h_lines, v_lines, tolerance=15):
             if top_tick and bottom_tick: return True
     return False
 
-def is_near_any_line(number_bbox, all_lines, proximity_tolerance=10):
-    for line in all_lines:
-        search_box = {'x0': number_bbox['x0'] - proximity_tolerance, 'top': number_bbox['top'] - proximity_tolerance, 'x1': number_bbox['x1'] + proximity_tolerance, 'bottom': number_bbox['bottom'] + proximity_tolerance}
-        line_box = {'x0': min(line['x0'], line['x1']), 'top': min(line['top'], line['bottom']), 'x1': max(line['x0'], line['x1']), 'bottom': max(line['top'], line['bottom'])}
-        if (max(search_box['x0'], line_box['x0']) <= min(search_box['x1'], line_box['x1']) and max(search_box['top'], line_box['top']) <= min(search_box['bottom'], line_box['bottom'])):
-            return True
-    return False
-
 def is_bbox_inside_zones(bbox, zones):
     for zone in zones:
         if (max(bbox['x0'], zone['x0']) < min(bbox['x1'], zone['x1']) and max(bbox['top'], zone['top']) < min(bbox['bottom'], zone['bottom'])):
@@ -66,7 +58,6 @@ def get_ink_area_of_first_char(cluster, page):
 def calculate_confidence(number_info):
     score = 20
     if number_info['is_near_dimension_line']: score += 50
-    if number_info['is_near_any_line']: score += 10
     if number_info['ink_area'] > 15: score += 25
     elif number_info['ink_area'] > 8: score += 15
     if number_info['bbox']['top'] > number_info['page_height'] * 0.85: score -= 40
@@ -86,8 +77,7 @@ def process_cluster_for_new_logic(cluster, page, orientation, h_lines, v_lines, 
         ink_area = get_ink_area_of_first_char(cluster, page)
         if ink_area > 200: return None
         is_dim_line = is_near_dimension_line(bbox, h_lines, v_lines)
-        is_any_line = is_near_any_line(bbox, page.lines)
-        number_info = {'value': value, 'bbox': bbox, 'ink_area': ink_area, 'orientation': orientation, 'is_near_dimension_line': is_dim_line, 'is_near_any_line': is_any_line, 'page_height': page.height}
+        number_info = {'value': value, 'bbox': bbox, 'ink_area': ink_area, 'orientation': orientation, 'is_near_dimension_line': is_dim_line, 'page_height': page.height}
         confidence = calculate_confidence(number_info)
         return {'Number': value, 'Ink Area': round(ink_area, 2), 'Confidence (%)': confidence}
     return None
@@ -151,8 +141,7 @@ def assign_ink_groups(df, tolerance=1.0):
     group_mapping[unique_inks[0]] = current_group_id
     last_val_in_group = unique_inks[0]
     for ink in unique_inks[1:]:
-        if ink - last_val_in_group <= tolerance:
-            group_mapping[ink] = current_group_id
+        if ink - last_val_in_group <= tolerance: group_mapping[ink] = current_group_id
         else:
             current_group_id += 1
             group_mapping[ink] = current_group_id
@@ -251,11 +240,10 @@ def extract_edgeband_and_foil_keywords(pdf_path):
             foil_S_count += sum(1 for t in texts if t in foil_S_keywords)
     edgeband_L_count, edgeband_S_count = min(edgeband_L_count, 2), min(foil_L_count, 2)
     foil_L_count, foil_S_count = min(foil_L_count, 2), min(foil_S_count, 2)
-    edgeband_result = ""
+    edgeband_result, foil_result = "", ""
     if edgeband_L_count > 0 and edgeband_S_count > 0: edgeband_result = f"{edgeband_L_count}L{edgeband_S_count}S"
     elif edgeband_L_count > 0: edgeband_result = f"{edgeband_L_count}L"
     elif edgeband_S_count > 0: edgeband_result = f"{edgeband_S_count}S"
-    foil_result = ""
     if foil_L_count > 0 and foil_S_count > 0: foil_result = f"{foil_L_count}L{foil_S_count}S"
     elif foil_L_count > 0: foil_result = f"{foil_L_count}L"
     elif foil_S_count > 0: foil_result = f"{foil_S_count}S"
@@ -338,7 +326,7 @@ def to_excel(df):
         except ImportError: return None
     return output.getvalue()
 
-# ===== GIAO DIỆN STREAMLIT MỚI =====
+# ===== GIAO DIỆN STREAMLIT MỚI (Tự động, tối giản) =====
 def main():
     st.title("📄 Trình trích xuất dữ liệu PDF")
     st.write("Tự động nhận diện kích thước (Dài, Rộng, Cao) và các thông tin khác từ bản vẽ kỹ thuật.")
@@ -352,6 +340,7 @@ def main():
     
     if uploaded_files:
         all_final_results = []
+        # Sử dụng st.spinner để hiển thị trạng thái đang xử lý
         with st.spinner(f"⏳ Đang xử lý {len(uploaded_files)} file... Vui lòng chờ một lát."):
             for uploaded_file in uploaded_files:
                 temp_path = save_uploaded_file(uploaded_file)
@@ -376,3 +365,26 @@ def main():
             st.success(f"✅ Xử lý hoàn tất {len(all_final_results)} file!")
             st.markdown("---")
             st.subheader("📊 Kết quả trích xuất")
+            final_results_df = pd.DataFrame(all_final_results)
+            st.dataframe(final_results_df, use_container_width=True, hide_index=True)
+            
+            st.markdown("---")
+            
+            # Chỉ hiển thị nút Download Excel
+            excel_data = to_excel(final_results_df)
+            if excel_data:
+                st.download_button(
+                    label="📥 Tải về file Excel",
+                    data=excel_data,
+                    file_name="pdf_extraction_results.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+            else:
+                st.button("📊 Excel (Không khả dụng)", disabled=True, help="Cần cài đặt thư viện xlsxwriter hoặc openpyxl")
+        else:
+            st.error("Không có kết quả nào để hiển thị!")
+    else:
+        st.info("👆 Vui lòng tải lên một hoặc nhiều file PDF để bắt đầu.")
+    
+    st.markdown("---")
+    st.markdown("<div style='text-align: center; color: #666; font-size: 0.9em;'>PDF Data Extractor |
