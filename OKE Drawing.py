@@ -150,7 +150,6 @@ def assign_ink_groups(df, tolerance=1.0):
     df['Ink Area Group'] = df['Ink Area'].map(group_mapping)
     return df
 
-# --- CÁC HÀM CŨ ĐƯỢC GIỮ LẠI ---
 def find_laminate_keywords(pdf_path):
     target_keywords = ["LAM/MASKING (IF APPLICABLE)","GLUEABLE LAM/TC BLACK (IF APPLICABLE)","FLEX PAPER/PAPER", "GLUEABLE LAM", "RAW", "LAM", "GRAIN"]
     found_pairs = []
@@ -227,7 +226,6 @@ def find_profile_a(pdf_path):
                 if match: return match.group(1)
     return profile_value
 
-# --- HÀM TÌM FOIL VÀ EDGEBAND ĐÃ SỬA LỖI LOGIC ---
 def extract_edgeband_and_foil_keywords(pdf_path):
     """
     Quét PDF để đếm và tạo nhãn L và S cho từng danh mục riêng biệt.
@@ -273,8 +271,6 @@ def check_dimensions_status(length, width, height):
         return 'Done'
     return 'Recheck'
 
-# --- HÀM process_single_pdf ĐÃ ĐƯỢC VIẾT LẠI HOÀN TOÀN ---
-
 def process_single_pdf(pdf_path, original_filename):
     numbers = extract_all_numbers(pdf_path)
     
@@ -296,7 +292,7 @@ def process_single_pdf(pdf_path, original_filename):
             if len(unique_numbers_in_group) >= 1: dim_map[unique_numbers_in_group[-1]] = 'Length (mm)'
             if len(unique_numbers_in_group) >= 2: dim_map[unique_numbers_in_group[0]] = 'Height (mm)'
             if len(unique_numbers_in_group) >= 3: dim_map[unique_numbers_in_group[1]] = 'Width (mm)'
-        else: # Logic dự phòng
+        else:
             high_confidence_dims = full_df[full_df['Confidence (%)'] > 50]
             if not high_confidence_dims.empty:
                 top_dims = high_confidence_dims.drop_duplicates(subset=['Number']).head(3)
@@ -309,7 +305,6 @@ def process_single_pdf(pdf_path, original_filename):
     laminate_raw_result = " / ".join(laminate_pairs) if laminate_pairs else ""
     laminate_result = process_laminate_result(laminate_raw_result) if laminate_pairs else ""
     profile_a_result = find_profile_a(pdf_path)
-    # Gọi hàm mới đã sửa lỗi
     edgeband_foil_results = extract_edgeband_and_foil_keywords(pdf_path)
 
     final_result = {
@@ -326,7 +321,6 @@ def process_single_pdf(pdf_path, original_filename):
     final_result['Status'] = check_dimensions_status(final_result['Length (mm)'], final_result['Width (mm)'], final_result['Height (mm)'])
     return final_result
 
-
 def save_uploaded_file(uploaded_file):
     try:
         with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp_file:
@@ -339,14 +333,17 @@ def save_uploaded_file(uploaded_file):
 def to_excel(df):
     output = io.BytesIO()
     try:
-        with pd.ExcelWriter(output, engine='xlsxwriter') as writer: df.to_excel(writer, index=False, sheet_name='PDF_Extraction_Results')
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer: 
+            df.to_excel(writer, index=False, sheet_name='PDF_Extraction_Results')
     except ImportError:
         try:
-            with pd.ExcelWriter(output, engine='openpyxl') as writer: df.to_excel(writer, index=False, sheet_name='PDF_Extraction_Results')
-        except ImportError: return None
+            with pd.ExcelWriter(output, engine='openpyxl') as writer: 
+                df.to_excel(writer, index=False, sheet_name='PDF_Extraction_Results')
+        except ImportError: 
+            return None
     return output.getvalue()
 
-# ===== GIAO DIỆN STREAMLIT MỚI (ĐÃ SỬA LỖI VÀ HOÀN THIỆN) =====
+# ===== GIAO DIỆN STREAMLIT VỚI PROGRESS BAR =====
 def main():
     st.title("📄 Trình trích xuất dữ liệu PDF")
     st.write("Tự động nhận diện kích thước (Dài, Rộng, Cao) và các thông tin khác từ bản vẽ kỹ thuật.")
@@ -360,54 +357,148 @@ def main():
     
     if uploaded_files:
         all_final_results = []
-        with st.spinner(f"⏳ Đang xử lý {len(uploaded_files)} file... Vui lòng chờ một lát."):
-            for uploaded_file in uploaded_files:
-                temp_path = save_uploaded_file(uploaded_file)
-                if temp_path:
-                    try:
-                        final_result = process_single_pdf(temp_path, uploaded_file.name)
-                        all_final_results.append(final_result)
-                    except Exception as e:
-                        st.error(f"Lỗi khi xử lý file {uploaded_file.name}: {e}")
-                        error_result = {
-                            'Drawing #': os.path.splitext(uploaded_file.name)[0],
-                            'Length (mm)': 'LỖI', 'Width (mm)': 'LỖI', 'Height (mm)': 'LỖI',
-                            'Laminate': 'LỖI', 'Edgeband': 'LỖI', 'Foil': 'LỖI',
-                            'Profile': 'LỖI', 'Status': 'LỖI'
-                        }
-                        all_final_results.append(error_result)
-                    finally:
-                        if os.path.exists(temp_path):
-                            os.unlink(temp_path)
+        total_files = len(uploaded_files)
+        
+        # Tạo container cho progress và status
+        progress_container = st.container()
+        
+        with progress_container:
+            # Tạo progress bar và status text
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            file_status = st.empty()
+        
+        # Xử lý từng file
+        for i, uploaded_file in enumerate(uploaded_files):
+            current_file = i + 1
             
+            # Cập nhật trạng thái
+            status_text.text(f"⏳ Đang xử lý file {current_file}/{total_files}")
+            file_status.info(f"📄 **{uploaded_file.name}**")
+            
+            temp_path = save_uploaded_file(uploaded_file)
+            if temp_path:
+                try:
+                    final_result = process_single_pdf(temp_path, uploaded_file.name)
+                    all_final_results.append(final_result)
+                    
+                    # Hiển thị kết quả tạm thời cho file vừa xử lý
+                    if final_result['Status'] == 'Done':
+                        file_status.success(f"✅ **{uploaded_file.name}** - Thành công")
+                    else:
+                        file_status.warning(f"⚠️ **{uploaded_file.name}** - Cần kiểm tra lại")
+                        
+                except Exception as e:
+                    st.error(f"❌ Lỗi khi xử lý file **{uploaded_file.name}**: {e}")
+                    error_result = {
+                        'Drawing #': os.path.splitext(uploaded_file.name)[0],
+                        'Length (mm)': 'LỖI', 'Width (mm)': 'LỖI', 'Height (mm)': 'LỖI',
+                        'Laminate': 'LỖI', 'Edgeband': 'LỖI', 'Foil': 'LỖI',
+                        'Profile': 'LỖI', 'Status': 'LỖI'
+                    }
+                    all_final_results.append(error_result)
+                    file_status.error(f"❌ **{uploaded_file.name}** - Lỗi xử lý")
+                finally:
+                    if os.path.exists(temp_path):
+                        os.unlink(temp_path)
+            
+            # Cập nhật progress bar
+            progress_percentage = current_file / total_files
+            progress_bar.progress(progress_percentage)
+        
+        # Hoàn thành xử lý
+        progress_bar.progress(1.0)
+        status_text.success(f"✅ Hoàn thành xử lý {total_files} file!")
+        file_status.empty()  # Xóa trạng thái file cuối cùng
+        
         if all_final_results:
-            st.success(f"✅ Xử lý hoàn tất {len(all_final_results)} file!")
             st.markdown("---")
-            st.subheader("📊 Kết quả trích xuất")
+            
+            # Hiển thị thống kê tổng quan
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                done_count = sum(1 for result in all_final_results if result['Status'] == 'Done')
+                st.metric("✅ Thành công", done_count)
+            with col2:
+                recheck_count = sum(1 for result in all_final_results if result['Status'] == 'Recheck')
+                st.metric("⚠️ Cần kiểm tra", recheck_count)
+            with col3:
+                error_count = sum(1 for result in all_final_results if result['Status'] == 'LỖI')
+                st.metric("❌ Lỗi", error_count)
+            
+            st.markdown("---")
+            st.subheader("📊 Kết quả trích xuất chi tiết")
+            
             final_results_df = pd.DataFrame(all_final_results)
-            st.dataframe(final_results_df, use_container_width=True, hide_index=True)
+            
+            # Tô màu theo status
+            def highlight_status(val):
+                if val == 'Done':
+                    return 'background-color: #d4edda; color: #155724'
+                elif val == 'Recheck':
+                    return 'background-color: #fff3cd; color: #856404'
+                elif val == 'LỖI':
+                    return 'background-color: #f8d7da; color: #721c24'
+                return ''
+            
+            styled_df = final_results_df.style.applymap(highlight_status, subset=['Status'])
+            st.dataframe(styled_df, use_container_width=True, hide_index=True)
             
             st.markdown("---")
             
-            excel_data = to_excel(final_results_df)
-            if excel_data:
+            # Nút download
+            col1, col2 = st.columns(2)
+            with col1:
+                excel_data = to_excel(final_results_df)
+                if excel_data:
+                    st.download_button(
+                        label="📥 Tải về file Excel",
+                        data=excel_data,
+                        file_name=f"pdf_extraction_results_{total_files}_files.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
+                else:
+                    st.button("📊 Excel (Không khả dụng)", disabled=True, 
+                             help="Cần cài đặt thư viện xlsxwriter hoặc openpyxl")
+            
+            with col2:
+                csv_data = final_results_df.to_csv(index=False).encode('utf-8')
                 st.download_button(
-                    label="📥 Tải về file Excel",
-                    data=excel_data,
-                    file_name="pdf_extraction_results.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    label="📄 Tải về file CSV", 
+                    data=csv_data,
+                    file_name=f"pdf_extraction_results_{total_files}_files.csv",
+                    mime="text/csv"
                 )
-            else:
-                st.button("📊 Excel (Không khả dụng)", disabled=True, help="Cần cài đặt thư viện xlsxwriter hoặc openpyxl")
     
     else:
         st.info("👆 Vui lòng tải lên một hoặc nhiều file PDF để bắt đầu.")
+        
+        # Hiển thị hướng dẫn sử dụng
+        with st.expander("📖 Hướng dẫn sử dụng"):
+            st.markdown("""
+            ### Cách sử dụng:
+            1. **Tải file PDF**: Click vào vùng upload hoặc kéo thả file PDF vào đây
+            2. **Chờ xử lý**: Ứng dụng sẽ tự động phân tích từng file
+            3. **Xem kết quả**: Kết quả sẽ hiển thị trong bảng với các thông tin:
+               - Drawing #: Tên file (không có phần mở rộng)
+               - Length/Width/Height: Kích thước được trích xuất (mm)
+               - Laminate: Thông tin laminate
+               - Edgeband/Foil: Thông tin edgeband và foil
+               - Profile: Thông tin profile
+               - Status: Trạng thái (Done/Recheck/Lỗi)
+            4. **Tải kết quả**: Sử dụng nút download để lưu kết quả dưới dạng Excel hoặc CSV
+            
+            ### Lưu ý:
+            - Hỗ trợ xử lý nhiều file cùng lúc
+            - File PDF phải là bản vẽ kỹ thuật có chứa thông tin kích thước
+            - Quá trình xử lý có thể mất vài phút tùy thuộc vào số lượng và kích thước file
+            """)
     
     st.markdown("---")
     st.markdown(
         """
         <div style='text-align: center; color: #666; font-size: 0.9em;'>
-        PDF Data Extractor | Built with Streamlit
+        PDF Data Extractor v2.0 | Built with Streamlit | Progress Tracking Enabled
         </div>
         """, 
         unsafe_allow_html=True
@@ -415,4 +506,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
