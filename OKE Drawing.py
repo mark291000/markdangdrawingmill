@@ -480,7 +480,7 @@ def process_single_pdf(pdf_path, original_filename):
                            key=lambda x: x.map({'Yes': 0, 'No': 1}) if x.name == 'Line' else x)
 
         # STEP 2: Find the first valid Boldness from top to bottom
-        valid_values = [12.2, 8.01, 9.02, 6.01, 11.90, 7.93, 12.98, 8.65]
+        valid_values = [12.2, 8.01, 9.01, 9.02, 6.01, 11.90, 7.93, 12.98, 8.65]
         allowed_group = None
 
         for idx, row in df.iterrows():
@@ -489,8 +489,8 @@ def process_single_pdf(pdf_path, original_filename):
 
                 if first_boldness in [12.02, 8.01]:
                     allowed_group = [12.02, 8.01]
-                elif first_boldness in [9.02, 6.01]:
-                    allowed_group = [9.02, 6.01]
+                elif first_boldness in [9.01, 9.02, 6.01]:
+                    allowed_group = [9.01, 9.02, 6.01]
                 elif first_boldness in [11.90, 7.93]:
                     allowed_group = [11.90, 7.93]
                 elif first_boldness in [12.98, 8.65]:
@@ -772,4 +772,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
