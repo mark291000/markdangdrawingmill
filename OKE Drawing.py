@@ -227,41 +227,28 @@ def find_profile_a(pdf_path):
     return profile_value
 
 # --- HÀM TÌM FOIL VÀ EDGEBAND ĐÃ SỬA LỖI LOGIC ---
-def extract_edgeband_and_foil_keywords(pdf_path):
+def extract_ls_label_for_edge_foil(pdf_path):
     """
-    Quét PDF một cách đơn giản để tìm sự hiện diện của các từ khóa liên quan.
+    Quét PDF để đếm và tạo nhãn L và S.
     """
-    edgeband_keywords = {"EDGEBAND", "DNABEGDE"}
-    foil_keywords = {"FOIL", "LIOF"}
-
-    found_edgeband = ""
-    found_foil = ""
-
+    group_L = {"EDGEBAND", "FOIL"}
+    group_S = {"DNABEGDE", "LIOF"}
+    total_count_L, total_count_S = 0, 0
     with pdfplumber.open(pdf_path) as pdf:
         for page in pdf.pages:
-            if found_edgeband and found_foil:
-                break # Tối ưu hóa: dừng lại khi đã tìm thấy cả hai
-            
             words = page.extract_words(x_tolerance=2)
-            if not words:
-                continue
-
-            page_words = {w["text"].upper() for w in words}
-
-            # Ưu tiên từ khóa chuẩn trước từ khóa bị đảo ngược
-            if not found_edgeband:
-                if "EDGEBAND" in page_words:
-                    found_edgeband = "EDGEBAND"
-                elif "DNABEGDE" in page_words:
-                    found_edgeband = "EDGEBAND" # Chuẩn hóa kết quả
-
-            if not found_foil:
-                if "FOIL" in page_words:
-                    found_foil = "FOIL"
-                elif "LIOF" in page_words:
-                    found_foil = "FOIL" # Chuẩn hóa kết quả
-
-    return {'Edgeband': found_edgeband, 'Foil': found_foil}
+            if not words: continue
+            texts = {w["text"].upper() for w in words}
+            total_count_L += sum(1 for t in texts if t in group_L)
+            total_count_S += sum(1 for t in texts if t in group_S)
+    
+    total_count_L = min(total_count_L, 2)
+    total_count_S = min(total_count_S, 2)
+    
+    final_label = ""
+    if total_count_L > 0: final_label += f"{total_count_L}L"
+    if total_count_S > 0: final_label += f"{total_count_S}S"
+    return final_label
 
 def check_dimensions_status(length, width, height):
     if (length and str(length) != '' and str(length) != 'ERROR' and width and str(width) != '' and str(width) != 'ERROR' and height and str(height) != '' and str(height) != 'ERROR'):
@@ -304,7 +291,8 @@ def process_single_pdf(pdf_path, original_filename):
     laminate_raw_result = " / ".join(laminate_pairs) if laminate_pairs else ""
     laminate_result = process_laminate_result(laminate_raw_result) if laminate_pairs else ""
     profile_a_result = find_profile_a(pdf_path)
-    edgeband_foil_results = extract_edgeband_and_foil_keywords(pdf_path)
+    # Gọi hàm mới
+    edge_foil_label = extract_ls_label_for_edge_foil(pdf_path)
 
     final_result = {
         'Drawing #': os.path.splitext(original_filename)[0],
@@ -312,8 +300,7 @@ def process_single_pdf(pdf_path, original_filename):
         'Width (mm)': next((k for k, v in dim_map.items() if v == 'Width (mm)'), ''),
         'Height (mm)': next((k for k, v in dim_map.items() if v == 'Height (mm)'), ''),
         'Laminate': laminate_result,
-        'Edgeband': edgeband_foil_results['Edgeband'],
-        'Foil': edgeband_foil_results['Foil'],
+        'Edge/Foil': edge_foil_label, # Thay đổi ở đây
         'Profile': profile_a_result
     }
     
@@ -340,7 +327,7 @@ def to_excel(df):
         except ImportError: return None
     return output.getvalue()
 
-# ===== GIAO DIỆN STREAMLIT MỚI (ĐÃ SỬA LỖI VÀ HOÀN THIỆN) =====
+# ===== STREAMLIT UI (ĐÃ SỬA LỖI VÀ HOÀN THIỆN) =====
 def main():
     st.title("📄 Trình trích xuất dữ liệu PDF")
     st.write("Tự động nhận diện kích thước (Dài, Rộng, Cao) và các thông tin khác từ bản vẽ kỹ thuật.")
@@ -366,7 +353,7 @@ def main():
                         error_result = {
                             'Drawing #': os.path.splitext(uploaded_file.name)[0],
                             'Length (mm)': 'LỖI', 'Width (mm)': 'LỖI', 'Height (mm)': 'LỖI',
-                            'Laminate': 'LỖI', 'Edgeband': 'LỖI', 'Foil': 'LỖI',
+                            'Laminate': 'LỖI', 'Edge/Foil': 'LỖI',
                             'Profile': 'LỖI', 'Status': 'LỖI'
                         }
                         all_final_results.append(error_result)
@@ -398,14 +385,4 @@ def main():
         st.info("👆 Vui lòng tải lên một hoặc nhiều file PDF để bắt đầu.")
     
     st.markdown("---")
-    st.markdown(
-        """
-        <div style='text-align: center; color: #666; font-size: 0.9em;'>
-        PDF Data Extractor | Built with Streamlit
-        </div>
-        """, 
-        unsafe_allow_html=True
-    )
-
-if __name__ == "__main__":
-    main()
+    st.markdown("<div style='text-align: center; color: #666; font-size: 0.9em;'>PDF Data Extractor | Built with Streamlit</div>", unsafe_
