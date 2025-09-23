@@ -8,7 +8,7 @@ import math
 import io
 
 # =============================================================================
-# ENHANCED NUMBER EXTRACTION FUNCTIONS
+# ENHANCED NUMBER EXTRACTION FROM NEW CODE
 # =============================================================================
 
 def reverse_number_string(number_string):
@@ -18,14 +18,19 @@ def reverse_number_string(number_string):
 def extract_foil_classification_with_detail(page):
     """Đếm FOIL/LIOF từ text đơn giản"""
     try:
+        # Lấy toàn bộ text từ trang
         text = page.extract_text()
         if not text:
             return "", ""
         
+        # Chuyển về chữ hoa để tìm kiếm
         text_upper = text.upper()
+        
+        # Đếm số lần xuất hiện của FOIL và LIOF
         foil_count = text_upper.count('FOIL')
         liof_count = text_upper.count('LIOF')
         
+        # Tạo detail string
         detail_parts = []
         if foil_count > 0:
             detail_parts.append(f"{foil_count} FOIL")
@@ -34,9 +39,11 @@ def extract_foil_classification_with_detail(page):
         
         detail = ", ".join(detail_parts) if detail_parts else ""
         
-        num_long = min(foil_count, 2)
-        num_short = min(liof_count, 2)
+        # Áp dụng quy tắc: FOIL = L, LIOF = S, tối đa 2L2S
+        num_long = min(foil_count, 2)  # FOIL = L, tối đa 2
+        num_short = min(liof_count, 2)  # LIOF = S, tối đa 2
         
+        # Tạo classification string
         classification = ""
         if num_long > 0:
             classification += f"{num_long}L"
@@ -52,14 +59,19 @@ def extract_foil_classification_with_detail(page):
 def extract_edgeband_classification_with_detail(page):
     """Đếm EDGEBAND/DNABEGDE từ text đơn giản"""
     try:
+        # Lấy toàn bộ text từ trang
         text = page.extract_text()
         if not text:
             return "", ""
         
+        # Chuyển về chữ hoa để tìm kiếm
         text_upper = text.upper()
+        
+        # Đếm số lần xuất hiện của EDGEBAND và DNABEGDE
         edgeband_count = text_upper.count('EDGEBAND')
         dnabegde_count = text_upper.count('DNABEGDE')
         
+        # Tạo detail string
         detail_parts = []
         if edgeband_count > 0:
             detail_parts.append(f"{edgeband_count} EDGEBAND")
@@ -68,9 +80,11 @@ def extract_edgeband_classification_with_detail(page):
         
         detail = ", ".join(detail_parts) if detail_parts else ""
         
-        num_long = min(edgeband_count, 2)
-        num_short = min(dnabegde_count, 2)
+        # Áp dụng quy tắc: EDGEBAND = L, DNABEGDE = S, tối đa 2L2S
+        num_long = min(edgeband_count, 2)  # EDGEBAND = L, tối đa 2
+        num_short = min(dnabegde_count, 2)  # DNABEGDE = S, tối đa 2
         
+        # Tạo classification string
         classification = ""
         if num_long > 0:
             classification += f"{num_long}L"
@@ -86,19 +100,24 @@ def extract_edgeband_classification_with_detail(page):
 def extract_profile_from_page(page):
     """Trích xuất thông tin profile từ trang PDF"""
     try:
+        # Lấy toàn bộ text từ trang
         text = page.extract_text()
         if not text:
             return ""
         
+        # Tìm pattern PROFILE: theo sau bởi mã profile
         profile_pattern = r"PROFILE:\s*([A-Z0-9\-]+)"
         match = re.search(profile_pattern, text, re.IGNORECASE)
         
         if match:
             return match.group(1).strip()
         
+        # Nếu không tìm thấy pattern chính xác, thử tìm các pattern khác
+        # Tìm các dòng chứa từ "profile" và lấy mã sau đó
         lines = text.split('\n')
         for line in lines:
             if 'profile' in line.lower():
+                # Tìm pattern có dạng chữ-số-chữ (ví dụ: 0109P-A)
                 profile_match = re.search(r'([A-Z0-9]+[A-Z]-[A-Z0-9]+)', line, re.IGNORECASE)
                 if profile_match:
                     return profile_match.group(1).strip()
@@ -185,7 +204,7 @@ def create_character_groups_improved(digit_chars):
     return char_groups
 
 def should_group_characters(base_char, other_char, current_group):
-    """Xác định xem 2 ký tự có nên được nhóm lại không"""
+    """Xác định xem 2 ký tự có nên được nhóm lại không - GIẢM VÙNG GOM"""
     try:
         distance = math.sqrt(
             (base_char['x0'] - other_char['x0'])**2 +
@@ -273,30 +292,40 @@ def process_character_group_smart(group, extracted_numbers):
     except Exception:
         return None
 
+def extract_font_number(fontname):
+    """Logic font name"""
+    m = re.search(r"F(\d+)$", fontname)
+    return int(m.group(1)) if m else -1
+
 def create_dimension_summary(df):
     """Tạo bảng tóm tắt với Profile ở cuối"""
     if len(df) == 0:
         return pd.DataFrame(columns=["Drawing#", "Length (mm)", "Width (mm)", "Height (mm)", "FOIL", "EDGEBAND", "Profile"])
     
+    # Sắp xếp theo Number_Int để xác định max và min
     df_sorted = df.sort_values("Number_Int", ascending=False).reset_index(drop=True)
     
+    # Khởi tạo các giá trị dimension
     length_number = ""
     width_number = ""
     height_number = ""
     
+    # Gán NUMBER thực tế theo thứ tự từ lớn đến nhỏ
     for i, row in df_sorted.iterrows():
-        number_value = int(row['Number_Int'])
+        number_value = int(row['Number_Int'])  # Lấy số nguyên gốc
         
-        if i == 0:
+        if i == 0:  # Number lớn nhất = Length
             length_number = str(number_value)
-        elif i == len(df_sorted) - 1:
+        elif i == len(df_sorted) - 1:  # Number nhỏ nhất = Height
             height_number = str(number_value)
-        elif i == len(df_sorted) - 2:
+        elif i == len(df_sorted) - 2:  # Number gần nhỏ nhất = Width
             width_number = str(number_value)
     
+    # Lấy filename (loại bỏ extension nếu cần)
     filename = df.iloc[0]['File']
     drawing_name = filename.replace('.pdf', '') if filename.endswith('.pdf') else filename
     
+    # Lấy thông tin profile, FOIL, EDGEBAND
     profile_info = df.iloc[0]['Profile'] if 'Profile' in df.columns else ""
     foil_info = df.iloc[0]['FOIL'] if 'FOIL' in df.columns else ""
     edgeband_info = df.iloc[0]['EDGEBAND'] if 'EDGEBAND' in df.columns else ""
@@ -308,21 +337,15 @@ def create_dimension_summary(df):
         "Height (mm)": [height_number],
         "FOIL": [foil_info],
         "EDGEBAND": [edgeband_info],
-        "Profile": [profile_info]
+        "Profile": [profile_info]  # Profile ở cuối
     })
 
-def extract_font_number(fontname):
-    """Trích xuất số từ font name"""
-    m = re.search(r"F(\d+)$", fontname)
-    return int(m.group(1)) if m else -1
-
-def process_pdf_files(uploaded_files):
+def process_uploaded_files(uploaded_files):
     """Xử lý các file PDF được upload"""
     results = []
     
     for uploaded_file in uploaded_files:
         try:
-            # Đọc file PDF từ uploaded file
             with pdfplumber.open(uploaded_file) as pdf:
                 total_pages = len(pdf.pages)
 
@@ -331,17 +354,22 @@ def process_pdf_files(uploaded_files):
 
                 page = pdf.pages[0]
 
-                # Trích xuất thông tin
+                # Trích xuất thông tin profile
                 profile_info = extract_profile_from_page(page)
+                
+                # Trích xuất thông tin FOIL classification và detail
                 foil_classification, foil_detail = extract_foil_classification_with_detail(page)
+                
+                # Trích xuất thông tin EDGEBAND classification và detail
                 edgeband_classification, edgeband_detail = extract_edgeband_classification_with_detail(page)
 
+                # Sử dụng phương pháp trích xuất mới với font info
                 char_numbers, char_orientations, font_info = extract_numbers_from_chars_corrected_no_duplicates(page)
 
                 if not char_numbers:
                     continue
 
-                # Xử lý kết quả
+                # Xử lý kết quả với font name, profile, FOIL, EDGEBAND (không lưu Detail)
                 for number in char_numbers:
                     orientation = char_orientations.get(number, 'Horizontal')
                     fontname = font_info.get(number, {}).get('fontname', 'Unknown')
@@ -356,7 +384,6 @@ def process_pdf_files(uploaded_files):
                         "FOIL": foil_classification,
                         "EDGEBAND": edgeband_classification
                     })
-        
         except Exception as e:
             st.error(f"Error processing file {uploaded_file.name}: {e}")
             continue
@@ -380,16 +407,15 @@ def main():
     # Initialize session state
     if 'results_df' not in st.session_state:
         st.session_state.results_df = None
-    if 'detail_df' not in st.session_state:
-        st.session_state.detail_df = None
     
-    # File upload section
+    # File upload section (không hiển thị file đã tải)
     st.header("📁 Upload PDF Files")
     uploaded_files = st.file_uploader(
         "Choose PDF files",
         type=['pdf'],
         accept_multiple_files=True,
-        help="Select one or more PDF files to process"
+        help="Select one or more PDF files to process",
+        label_visibility="collapsed"
     )
     
     # Control buttons
@@ -412,42 +438,44 @@ def main():
     # Reset functionality
     if reset_button:
         st.session_state.results_df = None
-        st.session_state.detail_df = None
         st.rerun()
     
     # Processing
     if run_button and uploaded_files:
         with st.spinner("Processing PDF files..."):
             # Process files
-            results = process_pdf_files(uploaded_files)
+            results = process_uploaded_files(uploaded_files)
             
             if results:
-                # Create DataFrame and remove duplicates
+                # Tạo DataFrame và loại trùng
                 df_all = pd.DataFrame(results).drop_duplicates().reset_index(drop=True)
-                
-                # Logic font name - keep highest font number
-                df_all["Font_Num"] = df_all["Font Name"].apply(extract_font_number)
-                
-                df_final = df_all.groupby("File", as_index=False).apply(
-                    lambda g: g[g["Font_Num"] == g["Font_Num"].max()]
-                ).reset_index(drop=True)
-                
-                df_final = df_final.drop(columns=["Font_Num"])
-                
-                # Create summary
-                summary_results = []
-                for file_group in df_final.groupby("File"):
-                    filename, file_data = file_group
-                    summary = create_dimension_summary(file_data)
-                    summary_results.append(summary)
-                
-                final_summary = pd.concat(summary_results, ignore_index=True) if summary_results else pd.DataFrame(columns=["Drawing#", "Length (mm)", "Width (mm)", "Height (mm)", "FOIL", "EDGEBAND", "Profile"])
-                
-                # Store in session state
-                st.session_state.results_df = final_summary
-                st.session_state.detail_df = df_final[["File", "Number", "Font Name", "FOIL", "EDGEBAND", "Profile"]]
-                
-                st.success(f"Successfully processed {len(uploaded_files)} PDF file(s)!")
+
+                # Lọc chỉ giữ font có số lớn nhất
+                if not df_all.empty:
+                    df_all["Font_Num"] = df_all["Font Name"].apply(extract_font_number)
+                    
+                    df_final = df_all.groupby("File", as_index=False).apply(
+                        lambda g: g[g["Font_Num"] == g["Font_Num"].max()]
+                    ).reset_index(drop=True)
+                    
+                    df_final = df_final.drop(columns=["Font_Num"])
+                    
+                    # Tạo bảng tóm tắt cho từng file
+                    summary_results = []
+                    for file_group in df_final.groupby("File"):
+                        filename, file_data = file_group
+                        summary = create_dimension_summary(file_data)
+                        summary_results.append(summary)
+                    
+                    # Kết hợp tất cả kết quả
+                    final_summary = pd.concat(summary_results, ignore_index=True) if summary_results else pd.DataFrame(columns=["Drawing#", "Length (mm)", "Width (mm)", "Height (mm)", "FOIL", "EDGEBAND", "Profile"])
+                    
+                    # Store in session state
+                    st.session_state.results_df = final_summary
+                    
+                    st.success(f"Successfully processed {len(uploaded_files)} PDF file(s)!")
+                else:
+                    st.warning("No data could be extracted from the uploaded files.")
             else:
                 st.warning("No data could be extracted from the uploaded files.")
     
@@ -456,45 +484,27 @@ def main():
         st.markdown("---")
         st.header("📊 Results")
         
-        # Rules explanation
-        with st.expander("📋 Processing Rules", expanded=False):
-            st.markdown("""
-            **Classification Rules:**
-            - **FOIL** = L (Long), **LIOF** = S (Short)
-            - **EDGEBAND** = L (Long), **DNABEGDE** = S (Short)
-            - Maximum: 2L2S for each type
-            
-            **Dimension Assignment:**
-            - **Length**: Largest number found
-            - **Width**: Second largest number found  
-            - **Height**: Smallest number found
-            """)
-        
         # Main results table
-        st.subheader("📈 Final Summary")
         st.dataframe(
             st.session_state.results_df,
             use_container_width=True,
             hide_index=True
         )
         
-        # Download button
-        csv = st.session_state.results_df.to_csv(index=False)
-        st.download_button(
-            label="📥 Download Results as CSV",
-            data=csv,
-            file_name="pdf_extraction_results.csv",
-            mime="text/csv"
-        )
+        # Download Excel button
+        def to_excel(df):
+            output = io.BytesIO()
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                df.to_excel(writer, index=False, sheet_name='PDF_Extraction_Results')
+            return output.getvalue()
         
-        # Detail table
-        with st.expander("🔍 Detailed Information", expanded=False):
-            st.subheader("Detail Data (for verification)")
-            st.dataframe(
-                st.session_state.detail_df,
-                use_container_width=True,
-                hide_index=True
-            )
+        excel_data = to_excel(st.session_state.results_df)
+        st.download_button(
+            label="📥 Download Results as Excel",
+            data=excel_data,
+            file_name="pdf_extraction_results.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
 
 if __name__ == "__main__":
     main()
