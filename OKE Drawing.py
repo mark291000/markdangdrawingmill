@@ -53,7 +53,6 @@ def extract_foil_classification_with_detail(page):
         return classification if classification else "", detail
         
     except Exception as e:
-        st.error(f"Error extracting FOIL classification: {e}")
         return "", ""
 
 def extract_edgeband_classification_with_detail(page):
@@ -94,7 +93,6 @@ def extract_edgeband_classification_with_detail(page):
         return classification if classification else "", detail
         
     except Exception as e:
-        st.error(f"Error extracting EDGEBAND classification: {e}")
         return "", ""
 
 def extract_profile_from_page(page):
@@ -124,7 +122,6 @@ def extract_profile_from_page(page):
         
         return ""
     except Exception as e:
-        st.error(f"Error extracting profile: {e}")
         return ""
 
 def is_valid_font(fontname):
@@ -181,9 +178,6 @@ def extract_numbers_from_chars_corrected_no_duplicates(page):
         
         if not preferred_font:
             return numbers, orientations, font_info
-        
-        st.write(f"Fonts tìm thấy: {valid_fonts}")
-        st.write(f"Font được chọn: {preferred_font}")
 
         char_groups = create_character_groups_improved(digit_chars, preferred_font)
         extracted_numbers = []
@@ -223,7 +217,7 @@ def extract_numbers_from_chars_corrected_no_duplicates(page):
                     extracted_numbers.append(number)
 
     except Exception as e:
-        st.error(f"Error in char extraction: {e}")
+        pass
 
     return numbers, orientations, font_info
 
@@ -373,8 +367,6 @@ def create_dimension_summary(df):
     all_numbers = df['Number_Int'].tolist()
     unique_numbers = sorted(list(set(all_numbers)), reverse=True)  # Từ lớn đến nhỏ
     
-    st.write(f"Các số unique trong file: {unique_numbers}")
-    
     # Khởi tạo các giá trị dimension
     length_number = ""
     width_number = ""
@@ -385,25 +377,18 @@ def create_dimension_summary(df):
         length_number = str(unique_numbers[0])
         width_number = str(unique_numbers[0])
         height_number = str(unique_numbers[0])
-        st.write(f"Logic: 1 số duy nhất -> L=W=H={unique_numbers[0]}")
         
     elif len(unique_numbers) == 2:
         # Có 2 số: L = số lớn, W = H = số nhỏ
         length_number = str(unique_numbers[0])    # Số lớn nhất
         width_number = str(unique_numbers[1])     # Số nhỏ nhất
         height_number = str(unique_numbers[1])    # Số nhỏ nhất = width
-        st.write(f"Logic: 2 số -> L={unique_numbers[0]}, W=H={unique_numbers[1]}")
         
     elif len(unique_numbers) >= 3:
         # Có 3+ số: L = lớn nhất, W = gần nhỏ nhất, H = nhỏ nhất
         length_number = str(unique_numbers[0])    # Số lớn nhất
         width_number = str(unique_numbers[-2])    # Số gần nhỏ nhất (thứ 2 từ cuối)
         height_number = str(unique_numbers[-1])   # Số nhỏ nhất
-        st.write(f"Logic: 3+ số -> L={unique_numbers[0]}, W={unique_numbers[-2]}, H={unique_numbers[-1]}")
-        
-        # Kiểm tra trường hợp đặc biệt: nếu 2 số nhỏ nhất bằng nhau
-        if unique_numbers[-1] == unique_numbers[-2]:
-            st.write(f"Đặc biệt: 2 số nhỏ nhất bằng nhau -> W=H={unique_numbers[-1]}")
     
     # Lấy filename
     filename = df.iloc[0]['File']
@@ -423,9 +408,6 @@ def create_dimension_summary(df):
         "EDGEBAND": [edgeband_info],
         "Profile": [profile_info]
     })
-    
-    st.write(f"Kết quả: L={length_number}, W={width_number}, H={height_number}")
-    st.write("-" * 50)
     
     return result_df
 
@@ -447,7 +429,6 @@ def main():
     if uploaded_files:
         if st.button("Xử lý PDF Files"):
             results = []
-            detail_results = []
             
             # Progress bar
             progress_bar = st.progress(0)
@@ -458,14 +439,11 @@ def main():
                     # Update progress
                     progress_bar.progress((idx + 1) / total_files)
                     
-                    st.write(f"Đang xử lý: {uploaded_file.name}")
-                    
                     # Read PDF
                     with pdfplumber.open(io.BytesIO(uploaded_file.read())) as pdf:
                         total_pages = len(pdf.pages)
 
                         if total_pages == 0:
-                            st.warning(f"File {uploaded_file.name} không có trang nào")
                             continue
 
                         page = pdf.pages[0]
@@ -483,7 +461,6 @@ def main():
                         char_numbers, char_orientations, font_info = extract_numbers_from_chars_corrected_no_duplicates(page)
 
                         if not char_numbers:
-                            st.warning(f"Không tìm thấy số hợp lệ trong file {uploaded_file.name}")
                             continue
 
                         # Xử lý kết quả với font ưu tiên
@@ -504,15 +481,6 @@ def main():
                                 "EDGEBAND": edgeband_classification,
                                 "Index": i+1
                             })
-                            
-                            # Lưu vào kết quả chi tiết cho bảng phụ
-                            detail_results.append({
-                                "File": uploaded_file.name,
-                                "Valid Number": number,
-                                "Font Name": fontname,
-                                "Orientation": orientation,
-                                "Index": i+1
-                            })
                 
                 except Exception as e:
                     st.error(f"Lỗi khi xử lý file {uploaded_file.name}: {e}")
@@ -520,14 +488,12 @@ def main():
             # Clear progress bar
             progress_bar.empty()
             
-            # Tạo DataFrame
+            # Tạo DataFrame và hiển thị kết quả
             if results:
                 df_all = pd.DataFrame(results).reset_index(drop=True)
-                df_detail = pd.DataFrame(detail_results).reset_index(drop=True)
                 
                 # Lọc chỉ giữ font hợp lệ
                 df_all = df_all[df_all["Font Name"].apply(is_valid_font)].reset_index(drop=True)
-                df_detail = df_detail[df_detail["Font Name"].apply(is_valid_font)].reset_index(drop=True)
                 
                 if not df_all.empty:
                     df_final = df_all.copy()
@@ -537,45 +503,24 @@ def main():
                     summary_results = []
                     for file_group in df_final.groupby("File"):
                         filename, file_data = file_group
-                        st.write(f"\nXử lý file: {filename}")
                         summary = create_dimension_summary(file_data)
                         summary_results.append(summary)
                     
                     # Kết hợp tất cả kết quả
                     final_summary = pd.concat(summary_results, ignore_index=True) if summary_results else pd.DataFrame(columns=["Drawing#", "Length (mm)", "Width (mm)", "Height (mm)", "FOIL", "EDGEBAND", "Profile"])
                     
-                    # Hiển thị kết quả
-                    st.subheader("📊 Kết quả chính - Bảng tóm tắt kích thước")
+                    # CHỈ HIỂN THỊ BẢNG TÓM TẮT
+                    st.subheader("📊 Kết quả - Bảng tóm tắt kích thước")
                     st.dataframe(final_summary, use_container_width=True)
                     
-                    # Hiển thị bảng chi tiết
-                    st.subheader("📋 Bảng chi tiết - Các số được tìm thấy")
-                    st.dataframe(df_detail, use_container_width=True)
-                    
-                    # Download buttons
-                    st.subheader("💾 Tải về kết quả")
-                    
-                    # Convert to CSV for download
+                    # Download button cho bảng tóm tắt
                     csv_summary = final_summary.to_csv(index=False, encoding='utf-8-sig')
-                    csv_detail = df_detail.to_csv(index=False, encoding='utf-8-sig')
-                    
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        st.download_button(
-                            label="📥 Tải bảng tóm tắt (CSV)",
-                            data=csv_summary,
-                            file_name="dimension_summary.csv",
-                            mime="text/csv"
-                        )
-                    
-                    with col2:
-                        st.download_button(
-                            label="📥 Tải bảng chi tiết (CSV)",
-                            data=csv_detail,
-                            file_name="dimension_details.csv",
-                            mime="text/csv"
-                        )
+                    st.download_button(
+                        label="📥 Tải bảng tóm tắt (CSV)",
+                        data=csv_summary,
+                        file_name="dimension_summary.csv",
+                        mime="text/csv"
+                    )
                 
                 else:
                     st.warning("Không có dữ liệu hợp lệ sau khi lọc font")
