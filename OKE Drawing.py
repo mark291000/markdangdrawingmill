@@ -127,8 +127,42 @@ def extract_profile_from_page(page):
         st.error(f"Error extracting profile: {e}")
         return ""
 
+def is_valid_font(fontname):
+    """Kiểm tra font name có hợp lệ không - CHẤP NHẬN CIDFont+F2, CIDFont+F3, F2, F3"""
+    valid_fonts = ['CIDFont+F3', 'CIDFont+F2', 'F3', 'F2']
+    return fontname in valid_fonts or any(fontname.endswith(f) for f in valid_fonts)
+
+def get_font_priority(fontname):
+    """Trả về độ ưu tiên của font - SỐ CÀNG CAO CÀNG ƯU TIÊN"""
+    if 'CIDFont+F3' in fontname:
+        return 4  # Ưu tiên cao nhất
+    elif 'CIDFont+F2' in fontname:
+        return 3
+    elif 'F3' in fontname:
+        return 2
+    elif 'F2' in fontname:
+        return 1
+    else:
+        return 0  # Không hợp lệ
+
+def determine_preferred_font(all_fonts):
+    """Xác định font ưu tiên nhất từ danh sách font"""
+    if not all_fonts:
+        return None
+    
+    # Lấy font có priority cao nhất
+    font_priorities = [(font, get_font_priority(font)) for font in all_fonts]
+    font_priorities = [(font, priority) for font, priority in font_priorities if priority > 0]
+    
+    if not font_priorities:
+        return None
+    
+    # Sắp xếp theo priority giảm dần và trả về font đầu tiên
+    font_priorities.sort(key=lambda x: x[1], reverse=True)
+    return font_priorities[0][0]
+
 def extract_numbers_from_chars_corrected_no_duplicates(page):
-    """METHOD: Corrected character-level extraction with no duplicates"""
+    """METHOD: Corrected character-level extraction - ƯU TIÊN THEO FONT"""
     numbers = []
     orientations = {}
     font_info = {}
@@ -140,49 +174,71 @@ def extract_numbers_from_chars_corrected_no_duplicates(page):
         if not digit_chars:
             return numbers, orientations, font_info
 
-        char_groups = create_character_groups_improved(digit_chars)
-        extracted_numbers = set()
+        # Lấy tất cả font có trong page và xác định font ưu tiên
+        all_fonts = list(set([c.get('fontname', 'Unknown') for c in digit_chars]))
+        valid_fonts = [f for f in all_fonts if is_valid_font(f)]
+        preferred_font = determine_preferred_font(valid_fonts)
+        
+        if not preferred_font:
+            return numbers, orientations, font_info
+        
+        st.write(f"Fonts tìm thấy: {valid_fonts}")
+        st.write(f"Font được chọn: {preferred_font}")
+
+        char_groups = create_character_groups_improved(digit_chars, preferred_font)
+        extracted_numbers = []
 
         for group in char_groups:
             if len(group) == 1:
                 try:
                     num_value = int(group[0]['text'])
-                    # ĐIỀU KIỆN LỌC: 1 <= số <= 3500
-                    if 1 <= num_value <= 3500 and num_value not in extracted_numbers:
+                    fontname = group[0].get('fontname', 'Unknown')
+                    
+                    # CHỈ LẤY SỐ CỦA FONT ƯU TIÊN
+                    if (1 <= num_value <= 3500 and fontname == preferred_font):
+                        
                         numbers.append(num_value)
-                        orientations[num_value] = 'Single'
-                        font_info[num_value] = {
+                        orientations[f"{num_value}_{len(numbers)}"] = 'Single'
+                        font_info[f"{num_value}_{len(numbers)}"] = {
                             'chars': group,
-                            'fontname': group[0].get('fontname', 'Unknown')
+                            'fontname': fontname,
+                            'value': num_value
                         }
-                        extracted_numbers.add(num_value)
+                        extracted_numbers.append(num_value)
                 except:
                     continue
             else:
-                result = process_character_group_smart(group, extracted_numbers)
+                result = process_character_group_smart(group, extracted_numbers, preferred_font)
                 if result:
                     number, orientation = result
                     numbers.append(number)
-                    orientations[number] = orientation
+                    orientations[f"{number}_{len(numbers)}"] = orientation
                     fonts = [ch.get("fontname", "Unknown") for ch in group]
                     fontname = Counter(fonts).most_common(1)[0][0] if fonts else "Unknown"
-                    font_info[number] = {
+                    font_info[f"{number}_{len(numbers)}"] = {
                         'chars': group,
-                        'fontname': fontname
+                        'fontname': fontname,
+                        'value': number
                     }
-                    extracted_numbers.add(number)
+                    extracted_numbers.append(number)
 
     except Exception as e:
         st.error(f"Error in char extraction: {e}")
 
     return numbers, orientations, font_info
 
-def create_character_groups_improved(digit_chars):
-    """Tạo các nhóm ký tự với logic cải thiện để tránh trùng lặp"""
+def create_character_groups_improved(digit_chars, preferred_font):
+    """Tạo các nhóm ký tự - CHỈ GOM CÁC KÝ TỰ CỦA FONT ƯU TIÊN"""
     char_groups = []
     used_chars = set()
 
-    sorted_chars = sorted(digit_chars, key=lambda c: (c['top'], c['x0']))
+    # Lọc chỉ giữ ký tự từ font ưu tiên
+    valid_digit_chars = [c for c in digit_chars if c.get('fontname', 'Unknown') == preferred_font]
+    
+    if not valid_digit_chars:
+        return char_groups
+
+    sorted_chars = sorted(valid_digit_chars, key=lambda c: (c['top'], c['x0']))
 
     for i, base_char in enumerate(sorted_chars):
         if id(base_char) in used_chars:
@@ -191,11 +247,12 @@ def create_character_groups_improved(digit_chars):
         current_group = [base_char]
         used_chars.add(id(base_char))
 
+        # MỞ RỘNG VÙNG GOM ĐỂ BẮT SỐ DỌC ĐẦY ĐỦ
         for j, other_char in enumerate(sorted_chars):
             if i == j or id(other_char) in used_chars:
                 continue
 
-            if should_group_characters(base_char, other_char, current_group):
+            if should_group_characters(base_char, other_char, current_group, preferred_font):
                 current_group.append(other_char)
                 used_chars.add(id(other_char))
 
@@ -204,30 +261,39 @@ def create_character_groups_improved(digit_chars):
 
     return char_groups
 
-def should_group_characters(base_char, other_char, current_group):
-    """Xác định xem 2 ký tự có nên được nhóm lại không - GIẢM VÙNG GOM"""
+def should_group_characters(base_char, other_char, current_group, preferred_font):
+    """Xác định xem 2 ký tự có nên được nhóm lại không - CHỈ GOM CÙNG FONT ƯU TIÊN"""
     try:
+        # Kiểm tra font - chỉ nhóm các ký tự cùng font ưu tiên
+        base_font = base_char.get('fontname', 'Unknown')
+        other_font = other_char.get('fontname', 'Unknown')
+        
+        if not (base_font == preferred_font and other_font == preferred_font):
+            return False
+        
+        # Tăng khoảng cách cho phép để bắt số dọc đầy đủ
         distance = math.sqrt(
             (base_char['x0'] - other_char['x0'])**2 +
             (base_char['top'] - other_char['top'])**2
         )
 
-        if distance > 25:
+        # TĂNG KHOẢNG CÁCH CHO PHÉP ĐỂ BẮT SỐ DỌC
+        if distance > 50:
             return False
 
         if len(current_group) > 1:
             group_x_span = max(c['x0'] for c in current_group) - min(c['x0'] for c in current_group)
             group_y_span = max(c['top'] for c in current_group) - min(c['top'] for c in current_group)
 
-            is_group_vertical = group_y_span > group_x_span * 1.5
+            is_group_vertical = group_y_span > group_x_span * 1.2
 
             if is_group_vertical:
                 group_x_center = sum(c['x0'] for c in current_group) / len(current_group)
-                if abs(other_char['x0'] - group_x_center) > 8:
+                if abs(other_char['x0'] - group_x_center) > 15:
                     return False
             else:
                 group_y_center = sum(c['top'] for c in current_group) / len(current_group)
-                if abs(other_char['top'] - group_y_center) > 6:
+                if abs(other_char['top'] - group_y_center) > 10:
                     return False
 
         return True
@@ -235,10 +301,15 @@ def should_group_characters(base_char, other_char, current_group):
     except Exception:
         return False
 
-def process_character_group_smart(group, extracted_numbers):
-    """Xử lý nhóm ký tự thông minh để tránh trùng lặp"""
+def process_character_group_smart(group, extracted_numbers, preferred_font):
+    """Xử lý nhóm ký tự thông minh - CHỈ XỬ LÝ FONT ƯU TIÊN"""
     try:
         if len(group) < 2:
+            return None
+        
+        # Kiểm tra font ưu tiên cho cả nhóm
+        fonts = [ch.get("fontname", "Unknown") for ch in group]
+        if not all(font == preferred_font for font in fonts):
             return None
 
         x_positions = [c['x0'] for c in group]
@@ -247,7 +318,7 @@ def process_character_group_smart(group, extracted_numbers):
         x_span = max(x_positions) - min(x_positions)
         y_span = max(y_positions) - min(y_positions)
 
-        is_vertical = y_span > x_span * 1.5
+        is_vertical = y_span > x_span * 1.2
 
         if is_vertical:
             vertical_sorted = sorted(group, key=lambda c: c['top'])
@@ -257,8 +328,7 @@ def process_character_group_smart(group, extracted_numbers):
 
             try:
                 num_original = int(v_text)
-                # ĐIỀU KIỆN LỌC: 1 <= số <= 3500
-                if 1 <= num_original <= 3500 and num_original not in extracted_numbers:
+                if 1 <= num_original <= 3500:
                     candidates.append((num_original, 'Vertical'))
             except:
                 pass
@@ -266,8 +336,7 @@ def process_character_group_smart(group, extracted_numbers):
             try:
                 reversed_v_text = reverse_number_string(v_text)
                 num_reversed = int(reversed_v_text)
-                # ĐIỀU KIỆN LỌC: 1 <= số <= 3500
-                if 1 <= num_reversed <= 3500 and num_reversed not in extracted_numbers:
+                if 1 <= num_reversed <= 3500:
                     candidates.append((num_reversed, 'Vertical'))
             except:
                 pass
@@ -285,8 +354,7 @@ def process_character_group_smart(group, extracted_numbers):
 
             try:
                 num_value = int(h_text)
-                # ĐIỀU KIỆN LỌC: 1 <= số <= 3500
-                if 1 <= num_value <= 3500 and num_value not in extracted_numbers:
+                if 1 <= num_value <= 3500:
                     return (num_value, 'Horizontal')
             except:
                 pass
@@ -296,36 +364,48 @@ def process_character_group_smart(group, extracted_numbers):
     except Exception:
         return None
 
-def extract_font_number(fontname):
-    """Logic font name"""
-    m = re.search(r"F(\d+)$", fontname)
-    return int(m.group(1)) if m else -1
-
 def create_dimension_summary(df):
-    """Tạo bảng tóm tắt với Profile ở cuối"""
+    """Tạo bảng tóm tắt - WIDTH LÀ SỐ GẦN NHỎ NHẤT"""
     if len(df) == 0:
         return pd.DataFrame(columns=["Drawing#", "Length (mm)", "Width (mm)", "Height (mm)", "FOIL", "EDGEBAND", "Profile"])
     
-    # Sắp xếp theo Number_Int để xác định max và min
-    df_sorted = df.sort_values("Number_Int", ascending=False).reset_index(drop=True)
+    # Lấy tất cả số và sắp xếp theo thứ tự giảm dần
+    all_numbers = df['Number_Int'].tolist()
+    unique_numbers = sorted(list(set(all_numbers)), reverse=True)  # Từ lớn đến nhỏ
+    
+    st.write(f"Các số unique trong file: {unique_numbers}")
     
     # Khởi tạo các giá trị dimension
     length_number = ""
     width_number = ""
     height_number = ""
     
-    # Gán NUMBER thực tế theo thứ tự từ lớn đến nhỏ
-    for i, row in df_sorted.iterrows():
-        number_value = int(row['Number_Int'])  # Lấy số nguyên gốc
+    if len(unique_numbers) == 1:
+        # Chỉ có 1 số: L = W = H
+        length_number = str(unique_numbers[0])
+        width_number = str(unique_numbers[0])
+        height_number = str(unique_numbers[0])
+        st.write(f"Logic: 1 số duy nhất -> L=W=H={unique_numbers[0]}")
         
-        if i == 0:  # Number lớn nhất = Length
-            length_number = str(number_value)
-        elif i == len(df_sorted) - 1:  # Number nhỏ nhất = Height
-            height_number = str(number_value)
-        elif i == len(df_sorted) - 2:  # Number gần nhỏ nhất = Width
-            width_number = str(number_value)
+    elif len(unique_numbers) == 2:
+        # Có 2 số: L = số lớn, W = H = số nhỏ
+        length_number = str(unique_numbers[0])    # Số lớn nhất
+        width_number = str(unique_numbers[1])     # Số nhỏ nhất
+        height_number = str(unique_numbers[1])    # Số nhỏ nhất = width
+        st.write(f"Logic: 2 số -> L={unique_numbers[0]}, W=H={unique_numbers[1]}")
+        
+    elif len(unique_numbers) >= 3:
+        # Có 3+ số: L = lớn nhất, W = gần nhỏ nhất, H = nhỏ nhất
+        length_number = str(unique_numbers[0])    # Số lớn nhất
+        width_number = str(unique_numbers[-2])    # Số gần nhỏ nhất (thứ 2 từ cuối)
+        height_number = str(unique_numbers[-1])   # Số nhỏ nhất
+        st.write(f"Logic: 3+ số -> L={unique_numbers[0]}, W={unique_numbers[-2]}, H={unique_numbers[-1]}")
+        
+        # Kiểm tra trường hợp đặc biệt: nếu 2 số nhỏ nhất bằng nhau
+        if unique_numbers[-1] == unique_numbers[-2]:
+            st.write(f"Đặc biệt: 2 số nhỏ nhất bằng nhau -> W=H={unique_numbers[-1]}")
     
-    # Lấy filename (loại bỏ extension nếu cần)
+    # Lấy filename
     filename = df.iloc[0]['File']
     drawing_name = filename.replace('.pdf', '') if filename.endswith('.pdf') else filename
     
@@ -334,181 +414,178 @@ def create_dimension_summary(df):
     foil_info = df.iloc[0]['FOIL'] if 'FOIL' in df.columns else ""
     edgeband_info = df.iloc[0]['EDGEBAND'] if 'EDGEBAND' in df.columns else ""
     
-    return pd.DataFrame({
+    result_df = pd.DataFrame({
         "Drawing#": [drawing_name],
         "Length (mm)": [length_number],
         "Width (mm)": [width_number], 
         "Height (mm)": [height_number],
         "FOIL": [foil_info],
         "EDGEBAND": [edgeband_info],
-        "Profile": [profile_info]  # Profile ở cuối
+        "Profile": [profile_info]
     })
-
-def process_uploaded_files(uploaded_files):
-    """Xử lý các file PDF được upload"""
-    results = []
     
-    for uploaded_file in uploaded_files:
-        try:
-            with pdfplumber.open(uploaded_file) as pdf:
-                total_pages = len(pdf.pages)
-
-                if total_pages == 0:
-                    continue
-
-                page = pdf.pages[0]
-
-                # Trích xuất thông tin profile
-                profile_info = extract_profile_from_page(page)
-                
-                # Trích xuất thông tin FOIL classification và detail
-                foil_classification, foil_detail = extract_foil_classification_with_detail(page)
-                
-                # Trích xuất thông tin EDGEBAND classification và detail
-                edgeband_classification, edgeband_detail = extract_edgeband_classification_with_detail(page)
-
-                # Sử dụng phương pháp trích xuất mới với font info
-                char_numbers, char_orientations, font_info = extract_numbers_from_chars_corrected_no_duplicates(page)
-
-                if not char_numbers:
-                    continue
-
-                # Xử lý kết quả với font name, profile, FOIL, EDGEBAND (không lưu Detail)
-                for number in char_numbers:
-                    orientation = char_orientations.get(number, 'Horizontal')
-                    fontname = font_info.get(number, {}).get('fontname', 'Unknown')
-                    
-                    results.append({
-                        "File": uploaded_file.name,
-                        "Number": str(number),
-                        "Font Name": fontname,
-                        "Orientation": orientation,
-                        "Number_Int": number,
-                        "Profile": profile_info,
-                        "FOIL": foil_classification,
-                        "EDGEBAND": edgeband_classification
-                    })
-        except Exception as e:
-            st.error(f"Error processing file {uploaded_file.name}: {e}")
-            continue
+    st.write(f"Kết quả: L={length_number}, W={width_number}, H={height_number}")
+    st.write("-" * 50)
     
-    return results
+    return result_df
 
 # =============================================================================
-# STREAMLIT INTERFACE
+# STREAMLIT APP
 # =============================================================================
 
 def main():
-    st.set_page_config(
-        page_title="PDF Data Extraction Tool",
-        page_icon="📄",
-        layout="wide"
-    )
+    st.title("PDF Processing for Furniture Dimensions")
+    st.write("Upload PDF files để trích xuất thông tin kích thước và classification")
     
-    st.title("📄 PDF Data Extraction Tool")
-    st.markdown("---")
-    
-    # Initialize session state
-    if 'results_df' not in st.session_state:
-        st.session_state.results_df = None
-    
-    # File upload section (không hiển thị file đã tải)
-    st.header("📁 Upload PDF Files")
+    # File uploader
     uploaded_files = st.file_uploader(
-        "Choose PDF files",
-        type=['pdf'],
-        accept_multiple_files=True,
-        help="Select one or more PDF files to process",
-        label_visibility="collapsed"
+        "Chọn file PDF", 
+        type=['pdf'], 
+        accept_multiple_files=True
     )
     
-    # Control buttons
-    col1, col2 = st.columns([1, 1])
-    
-    with col1:
-        run_button = st.button(
-            "🚀 RUN",
-            type="primary",
-            disabled=(uploaded_files is None or len(uploaded_files) == 0),
-            use_container_width=True
-        )
-    
-    with col2:
-        reset_button = st.button(
-            "🔄 RESET",
-            use_container_width=True
-        )
-    
-    # Reset functionality
-    if reset_button:
-        st.session_state.results_df = None
-        st.rerun()
-    
-    # Processing
-    if run_button and uploaded_files:
-        with st.spinner("Processing PDF files..."):
-            # Process files
-            results = process_uploaded_files(uploaded_files)
+    if uploaded_files:
+        if st.button("Xử lý PDF Files"):
+            results = []
+            detail_results = []
             
-            if results:
-                # Tạo DataFrame và loại trùng
-                df_all = pd.DataFrame(results).drop_duplicates().reset_index(drop=True)
+            # Progress bar
+            progress_bar = st.progress(0)
+            total_files = len(uploaded_files)
+            
+            for idx, uploaded_file in enumerate(uploaded_files):
+                try:
+                    # Update progress
+                    progress_bar.progress((idx + 1) / total_files)
+                    
+                    st.write(f"Đang xử lý: {uploaded_file.name}")
+                    
+                    # Read PDF
+                    with pdfplumber.open(io.BytesIO(uploaded_file.read())) as pdf:
+                        total_pages = len(pdf.pages)
 
-                # Lọc chỉ giữ font có số lớn nhất
+                        if total_pages == 0:
+                            st.warning(f"File {uploaded_file.name} không có trang nào")
+                            continue
+
+                        page = pdf.pages[0]
+
+                        # Trích xuất thông tin profile
+                        profile_info = extract_profile_from_page(page)
+                        
+                        # Trích xuất thông tin FOIL classification và detail
+                        foil_classification, foil_detail = extract_foil_classification_with_detail(page)
+                        
+                        # Trích xuất thông tin EDGEBAND classification và detail
+                        edgeband_classification, edgeband_detail = extract_edgeband_classification_with_detail(page)
+
+                        # Sử dụng phương pháp trích xuất mới với font priority
+                        char_numbers, char_orientations, font_info = extract_numbers_from_chars_corrected_no_duplicates(page)
+
+                        if not char_numbers:
+                            st.warning(f"Không tìm thấy số hợp lệ trong file {uploaded_file.name}")
+                            continue
+
+                        # Xử lý kết quả với font ưu tiên
+                        for i, number in enumerate(char_numbers):
+                            key = f"{number}_{i+1}"
+                            orientation = char_orientations.get(key, 'Horizontal')
+                            fontname = font_info.get(key, {}).get('fontname', 'Unknown')
+                            
+                            # Lưu vào kết quả chính
+                            results.append({
+                                "File": uploaded_file.name,
+                                "Number": str(number),
+                                "Font Name": fontname,
+                                "Orientation": orientation,
+                                "Number_Int": number,
+                                "Profile": profile_info,
+                                "FOIL": foil_classification,
+                                "EDGEBAND": edgeband_classification,
+                                "Index": i+1
+                            })
+                            
+                            # Lưu vào kết quả chi tiết cho bảng phụ
+                            detail_results.append({
+                                "File": uploaded_file.name,
+                                "Valid Number": number,
+                                "Font Name": fontname,
+                                "Orientation": orientation,
+                                "Index": i+1
+                            })
+                
+                except Exception as e:
+                    st.error(f"Lỗi khi xử lý file {uploaded_file.name}: {e}")
+            
+            # Clear progress bar
+            progress_bar.empty()
+            
+            # Tạo DataFrame
+            if results:
+                df_all = pd.DataFrame(results).reset_index(drop=True)
+                df_detail = pd.DataFrame(detail_results).reset_index(drop=True)
+                
+                # Lọc chỉ giữ font hợp lệ
+                df_all = df_all[df_all["Font Name"].apply(is_valid_font)].reset_index(drop=True)
+                df_detail = df_detail[df_detail["Font Name"].apply(is_valid_font)].reset_index(drop=True)
+                
                 if not df_all.empty:
-                    df_all["Font_Num"] = df_all["Font Name"].apply(extract_font_number)
-                    
-                    df_final = df_all.groupby("File", as_index=False).apply(
-                        lambda g: g[g["Font_Num"] == g["Font_Num"].max()]
-                    ).reset_index(drop=True)
-                    
-                    df_final = df_final.drop(columns=["Font_Num"])
+                    df_final = df_all.copy()
+                    df_final = df_final.drop(columns=["Index"])
                     
                     # Tạo bảng tóm tắt cho từng file
                     summary_results = []
                     for file_group in df_final.groupby("File"):
                         filename, file_data = file_group
+                        st.write(f"\nXử lý file: {filename}")
                         summary = create_dimension_summary(file_data)
                         summary_results.append(summary)
                     
                     # Kết hợp tất cả kết quả
                     final_summary = pd.concat(summary_results, ignore_index=True) if summary_results else pd.DataFrame(columns=["Drawing#", "Length (mm)", "Width (mm)", "Height (mm)", "FOIL", "EDGEBAND", "Profile"])
                     
-                    # Store in session state
-                    st.session_state.results_df = final_summary
+                    # Hiển thị kết quả
+                    st.subheader("📊 Kết quả chính - Bảng tóm tắt kích thước")
+                    st.dataframe(final_summary, use_container_width=True)
                     
-                    st.success(f"Successfully processed {len(uploaded_files)} PDF file(s)!")
+                    # Hiển thị bảng chi tiết
+                    st.subheader("📋 Bảng chi tiết - Các số được tìm thấy")
+                    st.dataframe(df_detail, use_container_width=True)
+                    
+                    # Download buttons
+                    st.subheader("💾 Tải về kết quả")
+                    
+                    # Convert to CSV for download
+                    csv_summary = final_summary.to_csv(index=False, encoding='utf-8-sig')
+                    csv_detail = df_detail.to_csv(index=False, encoding='utf-8-sig')
+                    
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        st.download_button(
+                            label="📥 Tải bảng tóm tắt (CSV)",
+                            data=csv_summary,
+                            file_name="dimension_summary.csv",
+                            mime="text/csv"
+                        )
+                    
+                    with col2:
+                        st.download_button(
+                            label="📥 Tải bảng chi tiết (CSV)",
+                            data=csv_detail,
+                            file_name="dimension_details.csv",
+                            mime="text/csv"
+                        )
+                
                 else:
-                    st.warning("No data could be extracted from the uploaded files.")
+                    st.warning("Không có dữ liệu hợp lệ sau khi lọc font")
+                    empty_df = pd.DataFrame(columns=["Drawing#", "Length (mm)", "Width (mm)", "Height (mm)", "FOIL", "EDGEBAND", "Profile"])
+                    st.dataframe(empty_df)
+            
             else:
-                st.warning("No data could be extracted from the uploaded files.")
-    
-    # Display results
-    if st.session_state.results_df is not None:
-        st.markdown("---")
-        st.header("📊 Results")
-        
-        # Main results table
-        st.dataframe(
-            st.session_state.results_df,
-            use_container_width=True,
-            hide_index=True
-        )
-        
-        # Download Excel button
-        def to_excel(df):
-            output = io.BytesIO()
-            with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                df.to_excel(writer, index=False, sheet_name='PDF_Extraction_Results')
-            return output.getvalue()
-        
-        excel_data = to_excel(st.session_state.results_df)
-        st.download_button(
-            label="📥 Download Results as Excel",
-            data=excel_data,
-            file_name="pdf_extraction_results.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+                st.warning("Không có dữ liệu để hiển thị")
+                empty_df = pd.DataFrame(columns=["Drawing#", "Length (mm)", "Width (mm)", "Height (mm)", "FOIL", "EDGEBAND", "Profile"])
+                st.dataframe(empty_df)
 
 if __name__ == "__main__":
     main()
