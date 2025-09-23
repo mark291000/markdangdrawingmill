@@ -147,7 +147,8 @@ def extract_numbers_from_chars_corrected_no_duplicates(page):
             if len(group) == 1:
                 try:
                     num_value = int(group[0]['text'])
-                    if 1 <= num_value <= 9999 and num_value not in extracted_numbers:
+                    # ĐIỀU KIỆN LỌC: 1 <= số <= 3500
+                    if 1 <= num_value <= 3500 and num_value not in extracted_numbers:
                         numbers.append(num_value)
                         orientations[num_value] = 'Single'
                         font_info[num_value] = {
@@ -256,7 +257,8 @@ def process_character_group_smart(group, extracted_numbers):
 
             try:
                 num_original = int(v_text)
-                if 1 <= num_original <= 9999 and num_original not in extracted_numbers:
+                # ĐIỀU KIỆN LỌC: 1 <= số <= 3500
+                if 1 <= num_original <= 3500 and num_original not in extracted_numbers:
                     candidates.append((num_original, 'Vertical'))
             except:
                 pass
@@ -264,7 +266,8 @@ def process_character_group_smart(group, extracted_numbers):
             try:
                 reversed_v_text = reverse_number_string(v_text)
                 num_reversed = int(reversed_v_text)
-                if 1 <= num_reversed <= 9999 and num_reversed not in extracted_numbers:
+                # ĐIỀU KIỆN LỌC: 1 <= số <= 3500
+                if 1 <= num_reversed <= 3500 and num_reversed not in extracted_numbers:
                     candidates.append((num_reversed, 'Vertical'))
             except:
                 pass
@@ -282,7 +285,8 @@ def process_character_group_smart(group, extracted_numbers):
 
             try:
                 num_value = int(h_text)
-                if 1 <= num_value <= 9999 and num_value not in extracted_numbers:
+                # ĐIỀU KIỆN LỌC: 1 <= số <= 3500
+                if 1 <= num_value <= 3500 and num_value not in extracted_numbers:
                     return (num_value, 'Horizontal')
             except:
                 pass
