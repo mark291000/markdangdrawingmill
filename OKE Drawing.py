@@ -380,15 +380,16 @@ def main():
     # Initialize session state
     if 'results_df' not in st.session_state:
         st.session_state.results_df = None
+    if 'detail_df' not in st.session_state:
+        st.session_state.detail_df = None
     
-    # File upload section (không hiển thị file đã tải)
+    # File upload section
     st.header("📁 Upload PDF Files")
     uploaded_files = st.file_uploader(
         "Choose PDF files",
         type=['pdf'],
         accept_multiple_files=True,
-        help="Select one or more PDF files to process",
-        label_visibility="collapsed"  # Ẩn label để không hiển thị file list
+        help="Select one or more PDF files to process"
     )
     
     # Control buttons
@@ -411,6 +412,7 @@ def main():
     # Reset functionality
     if reset_button:
         st.session_state.results_df = None
+        st.session_state.detail_df = None
         st.rerun()
     
     # Processing
@@ -443,6 +445,7 @@ def main():
                 
                 # Store in session state
                 st.session_state.results_df = final_summary
+                st.session_state.detail_df = df_final[["File", "Number", "Font Name", "FOIL", "EDGEBAND", "Profile"]]
                 
                 st.success(f"Successfully processed {len(uploaded_files)} PDF file(s)!")
             else:
@@ -453,27 +456,45 @@ def main():
         st.markdown("---")
         st.header("📊 Results")
         
+        # Rules explanation
+        with st.expander("📋 Processing Rules", expanded=False):
+            st.markdown("""
+            **Classification Rules:**
+            - **FOIL** = L (Long), **LIOF** = S (Short)
+            - **EDGEBAND** = L (Long), **DNABEGDE** = S (Short)
+            - Maximum: 2L2S for each type
+            
+            **Dimension Assignment:**
+            - **Length**: Largest number found
+            - **Width**: Second largest number found  
+            - **Height**: Smallest number found
+            """)
+        
         # Main results table
+        st.subheader("📈 Final Summary")
         st.dataframe(
             st.session_state.results_df,
             use_container_width=True,
             hide_index=True
         )
         
-        # Download Excel button
-        def to_excel(df):
-            output = io.BytesIO()
-            with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                df.to_excel(writer, index=False, sheet_name='PDF_Extraction_Results')
-            return output.getvalue()
-        
-        excel_data = to_excel(st.session_state.results_df)
+        # Download button
+        csv = st.session_state.results_df.to_csv(index=False)
         st.download_button(
-            label="📥 Download Results as Excel",
-            data=excel_data,
-            file_name="pdf_extraction_results.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            label="📥 Download Results as CSV",
+            data=csv,
+            file_name="pdf_extraction_results.csv",
+            mime="text/csv"
         )
+        
+        # Detail table
+        with st.expander("🔍 Detailed Information", expanded=False):
+            st.subheader("Detail Data (for verification)")
+            st.dataframe(
+                st.session_state.detail_df,
+                use_container_width=True,
+                hide_index=True
+            )
 
 if __name__ == "__main__":
     main()
