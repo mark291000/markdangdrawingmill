@@ -125,62 +125,53 @@ def extract_profile_from_page(page):
         return ""
 
 def is_valid_font(fontname):
-    """Kiểm tra font name có hợp lệ không - CHẤP NHẬN CIDFont+F2, CIDFont+F3, F2, F3"""
-    valid_fonts = ['CIDFont+F3', 'CIDFont+F2', 'F3', 'F2']
+    """Kiểm tra font name có hợp lệ không - CHẤP NHẬN CIDFont+F2, CIDFont+F3, CIDFont+F4, F2, F3, F4"""
+    valid_fonts = ['CIDFont+F4', 'CIDFont+F3', 'CIDFont+F2', 'F4', 'F3', 'F2']
     return fontname in valid_fonts or any(fontname.endswith(f) for f in valid_fonts)
 
 def get_font_priority(fontname):
     """Trả về độ ưu tiên của font - SỐ CÀNG CAO CÀNG ƯU TIÊN"""
     if 'CIDFont+F3' in fontname:
-        return 4  # Ưu tiên cao nhất
+        return 5  # Ưu tiên cao nhất cho F2, F3
     elif 'CIDFont+F2' in fontname:
-        return 3
+        return 4
     elif 'F3' in fontname:
-        return 2
+        return 3
     elif 'F2' in fontname:
+        return 2
+    elif 'CIDFont+F4' in fontname:
+        return 1  # F4 có ưu tiên thấp hơn
+    elif 'F4' in fontname:
         return 1
     else:
         return 0  # Không hợp lệ
 
-def upgrade_font_name(fontname):
-    """Nâng cấp font name lên font cao hơn"""
-    if fontname == 'F2':
-        return 'F3'
-    elif fontname == 'F3':
-        return 'F4'
-    elif fontname == 'CIDFont+F2':
-        return 'CIDFont+F3'
-    elif fontname == 'CIDFont+F3':
-        return 'CIDFont+F4'
-    else:
-        return fontname
+def get_all_numbers_from_fonts(page, font_list):
+    """Trích xuất tất cả số từ danh sách font theo thứ tự ưu tiên"""
+    all_results = {}
+    
+    try:
+        chars = page.chars
+        digit_chars = [c for c in chars if c['text'].isdigit()]
 
-def determine_preferred_font(all_fonts):
-    """Xác định font ưu tiên nhất từ danh sách font"""
-    if not all_fonts:
-        return None
-    
-    # Lấy font có priority cao nhất
-    font_priorities = [(font, get_font_priority(font)) for font in all_fonts]
-    font_priorities = [(font, priority) for font, priority in font_priorities if priority > 0]
-    
-    if not font_priorities:
-        return None
-    
-    # Sắp xếp theo priority giảm dần và trả về font đầu tiên
-    font_priorities.sort(key=lambda x: x[1], reverse=True)
-    preferred_font = font_priorities[0][0]
-    
-    # KIỂM TRA TRƯỜNG HỢP CHỈ CÓ 1 FONT: Nâng lên font cao hơn
-    unique_fonts = list(set(all_fonts))
-    if len(unique_fonts) == 1:
-        upgraded_font = upgrade_font_name(preferred_font)
-        return upgraded_font
-    
-    return preferred_font
+        if not digit_chars:
+            return all_results
 
-def extract_numbers_from_chars_corrected_no_duplicates(page):
-    """METHOD: Corrected character-level extraction - ƯU TIÊN THEO FONT"""
+        for font in font_list:
+            numbers, orientations, font_info = extract_numbers_from_specific_font(page, font)
+            if numbers:
+                all_results[font] = {
+                    'numbers': numbers,
+                    'orientations': orientations,
+                    'font_info': font_info
+                }
+    except Exception as e:
+        pass
+    
+    return all_results
+
+def extract_numbers_from_specific_font(page, target_font):
+    """Trích xuất số từ một font cụ thể"""
     numbers = []
     orientations = {}
     font_info = {}
@@ -192,26 +183,7 @@ def extract_numbers_from_chars_corrected_no_duplicates(page):
         if not digit_chars:
             return numbers, orientations, font_info
 
-        # Lấy tất cả font có trong page và xác định font ưu tiên
-        all_fonts = list(set([c.get('fontname', 'Unknown') for c in digit_chars]))
-        valid_fonts = [f for f in all_fonts if is_valid_font(f)]
-        preferred_font = determine_preferred_font(valid_fonts)
-        
-        if not preferred_font:
-            return numbers, orientations, font_info
-
-        # TÌM FONT GỐC ĐỂ LỌC (nếu font được nâng cấp)
-        original_font = None
-        for font in valid_fonts:
-            if upgrade_font_name(font) == preferred_font:
-                original_font = font
-                break
-        
-        # Nếu không tìm thấy font gốc, sử dụng preferred_font
-        if original_font is None:
-            original_font = preferred_font
-
-        char_groups = create_character_groups_improved(digit_chars, original_font)
+        char_groups = create_character_groups_improved(digit_chars, target_font)
         extracted_numbers = []
 
         for group in char_groups:
@@ -220,21 +192,21 @@ def extract_numbers_from_chars_corrected_no_duplicates(page):
                     num_value = int(group[0]['text'])
                     fontname = group[0].get('fontname', 'Unknown')
                     
-                    # CHỈ LẤY SỐ CỦA FONT GỐC
-                    if (1 <= num_value <= 3500 and fontname == original_font):
+                    # CHỈ LẤY SỐ CỦA FONT MỤC TIÊU
+                    if (1 <= num_value <= 3500 and fontname == target_font):
                         
                         numbers.append(num_value)
                         orientations[f"{num_value}_{len(numbers)}"] = 'Single'
                         font_info[f"{num_value}_{len(numbers)}"] = {
                             'chars': group,
-                            'fontname': preferred_font,  # Hiển thị font đã nâng cấp
+                            'fontname': fontname,
                             'value': num_value
                         }
                         extracted_numbers.append(num_value)
                 except:
                     continue
             else:
-                result = process_character_group_smart(group, extracted_numbers, original_font)
+                result = process_character_group_smart(group, extracted_numbers, target_font)
                 if result:
                     number, orientation = result
                     numbers.append(number)
@@ -243,7 +215,7 @@ def extract_numbers_from_chars_corrected_no_duplicates(page):
                     fontname = Counter(fonts).most_common(1)[0][0] if fonts else "Unknown"
                     font_info[f"{number}_{len(numbers)}"] = {
                         'chars': group,
-                        'fontname': preferred_font,  # Hiển thị font đã nâng cấp
+                        'fontname': fontname,
                         'value': number
                     }
                     extracted_numbers.append(number)
@@ -252,6 +224,89 @@ def extract_numbers_from_chars_corrected_no_duplicates(page):
         pass
 
     return numbers, orientations, font_info
+
+def extract_numbers_with_font_priority(page):
+    """METHOD: Trích xuất số với độ ưu tiên font - MỞ RỘNG LÊN F4 NẾU KHÔNG ĐỦ 3 SỐ"""
+    try:
+        chars = page.chars
+        digit_chars = [c for c in chars if c['text'].isdigit()]
+
+        if not digit_chars:
+            return [], {}, {}
+
+        # Lấy tất cả font có trong page
+        all_fonts = list(set([c.get('fontname', 'Unknown') for c in digit_chars]))
+        
+        # Định nghĩa thứ tự ưu tiên: F2, F3 trước, sau đó mới đến F4
+        priority_fonts = ['CIDFont+F3', 'CIDFont+F2', 'F3', 'F2']
+        fallback_fonts = ['CIDFont+F4', 'F4']
+        
+        # Lọc font có trong page theo thứ tự ưu tiên
+        available_priority_fonts = [f for f in priority_fonts if f in all_fonts]
+        available_fallback_fonts = [f for f in fallback_fonts if f in all_fonts]
+
+        # BƯỚC 1: Thử trích xuất từ font ưu tiên cao (F2, F3)
+        final_numbers = []
+        final_orientations = {}
+        final_font_info = {}
+        used_font = None
+
+        if available_priority_fonts:
+            # Thử từng font ưu tiên
+            for font in available_priority_fonts:
+                numbers, orientations, font_info = extract_numbers_from_specific_font(page, font)
+                if numbers:
+                    # Lấy unique numbers
+                    unique_numbers = list(set(numbers))
+                    if len(unique_numbers) >= 3:
+                        # Đủ 3 số từ font ưu tiên, sử dụng luôn
+                        final_numbers = numbers
+                        final_orientations = orientations
+                        final_font_info = font_info
+                        used_font = font
+                        break
+                    elif len(unique_numbers) >= len(final_numbers):
+                        # Lưu kết quả tốt nhất từ font ưu tiên
+                        final_numbers = numbers
+                        final_orientations = orientations
+                        final_font_info = font_info
+                        used_font = font
+
+        # BƯỚC 2: Nếu không đủ 3 số từ font ưu tiên, mở rộng lên F4
+        unique_final_numbers = list(set(final_numbers)) if final_numbers else []
+        
+        if len(unique_final_numbers) < 3 and available_fallback_fonts:
+            st.info(f"⚠️ Chỉ tìm được {len(unique_final_numbers)} số từ font ưu tiên. Đang mở rộng lên F4...")
+            
+            # Thử trích xuất từ F4
+            for font in available_fallback_fonts:
+                numbers_f4, orientations_f4, font_info_f4 = extract_numbers_from_specific_font(page, font)
+                if numbers_f4:
+                    unique_numbers_f4 = list(set(numbers_f4))
+                    if len(unique_numbers_f4) >= 3:
+                        # Đủ 3 số từ F4, sử dụng F4
+                        final_numbers = numbers_f4
+                        final_orientations = orientations_f4
+                        final_font_info = font_info_f4
+                        used_font = font
+                        st.success(f"✅ Đã tìm được {len(unique_numbers_f4)} số từ font {font}")
+                        break
+                    elif len(unique_numbers_f4) > len(unique_final_numbers):
+                        # F4 có nhiều số hơn, sử dụng F4
+                        final_numbers = numbers_f4
+                        final_orientations = orientations_f4
+                        final_font_info = font_info_f4
+                        used_font = font
+
+        # Cập nhật font name trong kết quả
+        if used_font:
+            for key in final_font_info:
+                final_font_info[key]['fontname'] = used_font
+
+        return final_numbers, final_orientations, final_font_info
+
+    except Exception as e:
+        return [], {}, {}
 
 def create_character_groups_improved(digit_chars, target_font):
     """Tạo các nhóm ký tự - CHỈ GOM CÁC KÝ TỰ CỦA FONT MỤC TIÊU"""
@@ -489,13 +544,13 @@ def main():
                         # Trích xuất thông tin EDGEBAND classification và detail
                         edgeband_classification, edgeband_detail = extract_edgeband_classification_with_detail(page)
 
-                        # Sử dụng phương pháp trích xuất mới với font priority
-                        char_numbers, char_orientations, font_info = extract_numbers_from_chars_corrected_no_duplicates(page)
+                        # SỬ DỤNG PHƯƠNG PHÁP MỚI: Ưu tiên F2/F3, mở rộng F4 nếu cần
+                        char_numbers, char_orientations, font_info = extract_numbers_with_font_priority(page)
 
                         if not char_numbers:
                             continue
 
-                        # Xử lý kết quả với font ưu tiên
+                        # Xử lý kết quả
                         for i, number in enumerate(char_numbers):
                             key = f"{number}_{i+1}"
                             orientation = char_orientations.get(key, 'Horizontal')
@@ -524,12 +579,8 @@ def main():
             if results:
                 df_all = pd.DataFrame(results).reset_index(drop=True)
                 
-                # Lọc chỉ giữ font hợp lệ (bao gồm font đã nâng cấp)
-                valid_original_fonts = ['CIDFont+F3', 'CIDFont+F2', 'F3', 'F2']
-                valid_upgraded_fonts = ['CIDFont+F4', 'F4']  # Font đã nâng cấp
-                all_valid_fonts = valid_original_fonts + valid_upgraded_fonts
-                
-                df_all = df_all[df_all["Font Name"].isin(all_valid_fonts)].reset_index(drop=True)
+                # Lọc chỉ giữ font hợp lệ
+                df_all = df_all[df_all["Font Name"].apply(is_valid_font)].reset_index(drop=True)
                 
                 if not df_all.empty:
                     df_final = df_all.copy()
