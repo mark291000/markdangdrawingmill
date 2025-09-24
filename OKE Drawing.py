@@ -125,50 +125,30 @@ def extract_profile_from_page(page):
         return ""
 
 def is_valid_font(fontname):
-    """Kiểm tra font name có hợp lệ không - CHẤP NHẬN CIDFont+F2, CIDFont+F3, CIDFont+F4, F2, F3, F4"""
-    valid_fonts = ['CIDFont+F4', 'CIDFont+F3', 'CIDFont+F2', 'F4', 'F3', 'F2']
+    """Kiểm tra font name có hợp lệ không - CHẤP NHẬN CIDFont+F1, CIDFont+F2, CIDFont+F3, CIDFont+F4, F1, F2, F3, F4"""
+    valid_fonts = ['CIDFont+F4', 'CIDFont+F3', 'CIDFont+F2', 'CIDFont+F1', 'F4', 'F3', 'F2', 'F1']
     return fontname in valid_fonts or any(fontname.endswith(f) for f in valid_fonts)
 
 def get_font_priority(fontname):
     """Trả về độ ưu tiên của font - SỐ CÀNG CAO CÀNG ƯU TIÊN"""
     if 'CIDFont+F3' in fontname:
-        return 5  # Ưu tiên cao nhất cho F2, F3
+        return 6  # Ưu tiên cao nhất
     elif 'CIDFont+F2' in fontname:
+        return 5
+    elif 'CIDFont+F1' in fontname:
         return 4
     elif 'F3' in fontname:
         return 3
     elif 'F2' in fontname:
         return 2
-    elif 'CIDFont+F4' in fontname:
-        return 1  # F4 có ưu tiên thấp hơn
-    elif 'F4' in fontname:
+    elif 'F1' in fontname:
         return 1
+    elif 'CIDFont+F4' in fontname:
+        return 0  # F4 có ưu tiên thấp nhất
+    elif 'F4' in fontname:
+        return 0
     else:
-        return 0  # Không hợp lệ
-
-def get_all_numbers_from_fonts(page, font_list):
-    """Trích xuất tất cả số từ danh sách font theo thứ tự ưu tiên"""
-    all_results = {}
-    
-    try:
-        chars = page.chars
-        digit_chars = [c for c in chars if c['text'].isdigit()]
-
-        if not digit_chars:
-            return all_results
-
-        for font in font_list:
-            numbers, orientations, font_info = extract_numbers_from_specific_font(page, font)
-            if numbers:
-                all_results[font] = {
-                    'numbers': numbers,
-                    'orientations': orientations,
-                    'font_info': font_info
-                }
-    except Exception as e:
-        pass
-    
-    return all_results
+        return -1  # Không hợp lệ
 
 def extract_numbers_from_specific_font(page, target_font):
     """Trích xuất số từ một font cụ thể"""
@@ -225,8 +205,8 @@ def extract_numbers_from_specific_font(page, target_font):
 
     return numbers, orientations, font_info
 
-def extract_numbers_with_font_priority(page):
-    """METHOD: Trích xuất số với độ ưu tiên font - MỞ RỘNG LÊN F4 NẾU KHÔNG ĐỦ 3 SỐ"""
+def extract_numbers_with_smart_font_priority(page):
+    """METHOD: Trích xuất số với logic ưu tiên font thông minh"""
     try:
         chars = page.chars
         digit_chars = [c for c in chars if c['text'].isdigit()]
@@ -236,74 +216,73 @@ def extract_numbers_with_font_priority(page):
 
         # Lấy tất cả font có trong page
         all_fonts = list(set([c.get('fontname', 'Unknown') for c in digit_chars]))
+        valid_fonts = [f for f in all_fonts if is_valid_font(f)]
         
-        # Định nghĩa thứ tự ưu tiên: F2, F3 trước, sau đó mới đến F4
-        priority_fonts = ['CIDFont+F3', 'CIDFont+F2', 'F3', 'F2']
-        fallback_fonts = ['CIDFont+F4', 'F4']
+        if not valid_fonts:
+            return [], {}, {}
+
+        # Phân loại font theo loại
+        f1_fonts = [f for f in valid_fonts if 'F1' in f]
+        f2_fonts = [f for f in valid_fonts if 'F2' in f]
+        f3_fonts = [f for f in valid_fonts if 'F3' in f]
+        f4_fonts = [f for f in valid_fonts if 'F4' in f]
+
+        # LOGIC ƯU TIÊN MỚI
+        chosen_font = None
         
-        # Lọc font có trong page theo thứ tự ưu tiên
-        available_priority_fonts = [f for f in priority_fonts if f in all_fonts]
-        available_fallback_fonts = [f for f in fallback_fonts if f in all_fonts]
-
-        # BƯỚC 1: Thử trích xuất từ font ưu tiên cao (F2, F3)
-        final_numbers = []
-        final_orientations = {}
-        final_font_info = {}
-        used_font = None
-
-        if available_priority_fonts:
-            # Thử từng font ưu tiên
-            for font in available_priority_fonts:
-                numbers, orientations, font_info = extract_numbers_from_specific_font(page, font)
-                if numbers:
-                    # Lấy unique numbers
-                    unique_numbers = list(set(numbers))
-                    if len(unique_numbers) >= 3:
-                        # Đủ 3 số từ font ưu tiên, sử dụng luôn
-                        final_numbers = numbers
-                        final_orientations = orientations
-                        final_font_info = font_info
-                        used_font = font
-                        break
-                    elif len(unique_numbers) >= len(final_numbers):
-                        # Lưu kết quả tốt nhất từ font ưu tiên
-                        final_numbers = numbers
-                        final_orientations = orientations
-                        final_font_info = font_info
-                        used_font = font
-
-        # BƯỚC 2: Nếu không đủ 3 số từ font ưu tiên, mở rộng lên F4
-        unique_final_numbers = list(set(final_numbers)) if final_numbers else []
+        # Trường hợp 1: Chỉ có F1 và F2 → ưu tiên F2
+        if f1_fonts and f2_fonts and not f3_fonts and not f4_fonts:
+            chosen_font = max(f2_fonts, key=get_font_priority)
         
-        if len(unique_final_numbers) < 3 and available_fallback_fonts:
-            # BỎ DÒNG THÔNG BÁO: st.info(f"⚠️ Chỉ tìm được {len(unique_final_numbers)} số từ font ưu tiên. Đang mở rộng lên F4...")
+        # Trường hợp 2: Chỉ có F2 và F3 → ưu tiên F3
+        elif f2_fonts and f3_fonts and not f1_fonts and not f4_fonts:
+            # Thử F3 trước
+            f3_font = max(f3_fonts, key=get_font_priority)
+            numbers_f3, orientations_f3, font_info_f3 = extract_numbers_from_specific_font(page, f3_font)
+            unique_numbers_f3 = list(set(numbers_f3)) if numbers_f3 else []
             
-            # Thử trích xuất từ F4
-            for font in available_fallback_fonts:
-                numbers_f4, orientations_f4, font_info_f4 = extract_numbers_from_specific_font(page, font)
-                if numbers_f4:
-                    unique_numbers_f4 = list(set(numbers_f4))
-                    if len(unique_numbers_f4) >= 3:
-                        # Đủ 3 số từ F4, sử dụng F4
-                        final_numbers = numbers_f4
-                        final_orientations = orientations_f4
-                        final_font_info = font_info_f4
-                        used_font = font
-                        # BỎ DÒNG THÔNG BÁO: st.success(f"✅ Đã tìm được {len(unique_numbers_f4)} số từ font {font}")
-                        break
-                    elif len(unique_numbers_f4) > len(unique_final_numbers):
-                        # F4 có nhiều số hơn, sử dụng F4
-                        final_numbers = numbers_f4
-                        final_orientations = orientations_f4
-                        final_font_info = font_info_f4
-                        used_font = font
+            if len(unique_numbers_f3) >= 3:
+                # F3 đủ 3 số, sử dụng F3
+                chosen_font = f3_font
+            else:
+                # F3 không đủ 3 số, nâng lên F4
+                if f4_fonts:
+                    chosen_font = max(f4_fonts, key=get_font_priority)
+                else:
+                    # Không có F4, sử dụng F3 hoặc F2
+                    chosen_font = f3_font if numbers_f3 else max(f2_fonts, key=get_font_priority)
+        
+        # Trường hợp 3: Có cả F1, F2, F3 → ưu tiên F3
+        elif f1_fonts and f2_fonts and f3_fonts:
+            chosen_font = max(f3_fonts, key=get_font_priority)
+        
+        # Trường hợp 4: Chỉ có F3 → sử dụng F3
+        elif f3_fonts and not f1_fonts and not f2_fonts:
+            chosen_font = max(f3_fonts, key=get_font_priority)
+        
+        # Trường hợp 5: Chỉ có F2 → sử dụng F2
+        elif f2_fonts and not f1_fonts and not f3_fonts:
+            chosen_font = max(f2_fonts, key=get_font_priority)
+        
+        # Trường hợp 6: Chỉ có F1 → sử dụng F1
+        elif f1_fonts and not f2_fonts and not f3_fonts:
+            chosen_font = max(f1_fonts, key=get_font_priority)
+        
+        # Trường hợp mặc định: chọn font có priority cao nhất
+        else:
+            chosen_font = max(valid_fonts, key=get_font_priority)
 
-        # Cập nhật font name trong kết quả
-        if used_font:
+        # Trích xuất số từ font đã chọn
+        if chosen_font:
+            final_numbers, final_orientations, final_font_info = extract_numbers_from_specific_font(page, chosen_font)
+            
+            # Cập nhật font name trong kết quả
             for key in final_font_info:
-                final_font_info[key]['fontname'] = used_font
-
-        return final_numbers, final_orientations, final_font_info
+                final_font_info[key]['fontname'] = chosen_font
+                
+            return final_numbers, final_orientations, final_font_info
+        
+        return [], {}, {}
 
     except Exception as e:
         return [], {}, {}
@@ -544,8 +523,8 @@ def main():
                         # Trích xuất thông tin EDGEBAND classification và detail
                         edgeband_classification, edgeband_detail = extract_edgeband_classification_with_detail(page)
 
-                        # SỬ DỤNG PHƯƠNG PHÁP MỚI: Ưu tiên F2/F3, mở rộng F4 nếu cần
-                        char_numbers, char_orientations, font_info = extract_numbers_with_font_priority(page)
+                        # SỬ DỤNG PHƯƠNG PHÁP MỚI: Logic ưu tiên font thông minh
+                        char_numbers, char_orientations, font_info = extract_numbers_with_smart_font_priority(page)
 
                         if not char_numbers:
                             continue
@@ -600,7 +579,7 @@ def main():
                     st.subheader("📊 Kết quả - Bảng tóm tắt kích thước")
                     st.dataframe(final_summary, use_container_width=True)
                     
-                    # Download button cho bảng tóm tắt - THAY ĐỔI THÀNH EXCEL
+                    # Download button cho bảng tóm tắt - EXCEL
                     excel_buffer = io.BytesIO()
                     with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
                         final_summary.to_excel(writer, sheet_name='Dimension Summary', index=False)
