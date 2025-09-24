@@ -234,8 +234,8 @@ def extract_numbers_with_smart_font_priority(page):
         if f1_fonts and f2_fonts and not f3_fonts and not f4_fonts:
             chosen_font = max(f2_fonts, key=get_font_priority)
         
-        # Trường hợp 2: Chỉ có F2 và F3 → ưu tiên F3
-        elif f2_fonts and f3_fonts and not f1_fonts and not f4_fonts:
+        # Trường hợp 2: Có F2 và F3 (bất kể có F4 hay không) → ưu tiên F3, nếu F3 < 3 số thì nâng lên F4
+        elif f2_fonts and f3_fonts:
             # Thử F3 trước
             f3_font = max(f3_fonts, key=get_font_priority)
             numbers_f3, orientations_f3, font_info_f3 = extract_numbers_from_specific_font(page, f3_font)
@@ -247,16 +247,16 @@ def extract_numbers_with_smart_font_priority(page):
                 # F3 đủ 3 số, sử dụng F3
                 chosen_font = f3_font
             else:
-                # F3 không đủ 3 số, nâng lên F4
+                # F3 không đủ 3 số, nâng lên F4 nếu có
                 if f4_fonts:
                     chosen_font = max(f4_fonts, key=get_font_priority)
                 else:
                     # Không có F4, sử dụng F3 hoặc F2
                     chosen_font = f3_font if numbers_f3 else max(f2_fonts, key=get_font_priority)
         
-        # Trường hợp 3: Có cả F1, F2, F3 → ưu tiên F3
-        elif f1_fonts and f2_fonts and f3_fonts:
-            chosen_font = max(f3_fonts, key=get_font_priority)
+        # Trường hợp 3: Có cả F1, F2 nhưng không có F3 → ưu tiên F2
+        elif f1_fonts and f2_fonts and not f3_fonts:
+            chosen_font = max(f2_fonts, key=get_font_priority)
         
         # Trường hợp 4: Chỉ có F3 → sử dụng F3
         elif f3_fonts and not f1_fonts and not f2_fonts:
@@ -269,6 +269,10 @@ def extract_numbers_with_smart_font_priority(page):
         # Trường hợp 6: Chỉ có F1 → sử dụng F1
         elif f1_fonts and not f2_fonts and not f3_fonts:
             chosen_font = max(f1_fonts, key=get_font_priority)
+        
+        # Trường hợp 7: Chỉ có F4 → sử dụng F4
+        elif f4_fonts and not f1_fonts and not f2_fonts and not f3_fonts:
+            chosen_font = max(f4_fonts, key=get_font_priority)
         
         # Trường hợp mặc định: chọn font có priority cao nhất
         else:
