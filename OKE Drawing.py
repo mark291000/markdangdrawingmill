@@ -206,7 +206,7 @@ def extract_numbers_from_specific_font(page, target_font):
     return numbers, orientations, font_info
 
 def extract_numbers_with_smart_font_priority(page):
-    """METHOD: Trích xuất số với logic ưu tiên font thông minh"""
+    """METHOD: Trích xuất số với logic ưu tiên font thông minh - ĐẾM TẤT CẢ SỐ"""
     try:
         chars = page.chars
         digit_chars = [c for c in chars if c['text'].isdigit()]
@@ -227,7 +227,7 @@ def extract_numbers_with_smart_font_priority(page):
         f3_fonts = [f for f in valid_fonts if 'F3' in f]
         f4_fonts = [f for f in valid_fonts if 'F4' in f]
 
-        # LOGIC ƯU TIÊN MỚI
+        # LOGIC ƯU TIÊN MỚI - ĐẾM TẤT CẢ SỐ
         chosen_font = None
         
         # Trường hợp 1: Chỉ có F1 và F2 → ưu tiên F2
@@ -239,9 +239,11 @@ def extract_numbers_with_smart_font_priority(page):
             # Thử F3 trước
             f3_font = max(f3_fonts, key=get_font_priority)
             numbers_f3, orientations_f3, font_info_f3 = extract_numbers_from_specific_font(page, f3_font)
-            unique_numbers_f3 = list(set(numbers_f3)) if numbers_f3 else []
             
-            if len(unique_numbers_f3) >= 3:
+            # ĐẾM TẤT CẢ SỐ (không chỉ unique)
+            total_numbers_f3 = len(numbers_f3) if numbers_f3 else 0
+            
+            if total_numbers_f3 >= 3:
                 # F3 đủ 3 số, sử dụng F3
                 chosen_font = f3_font
             else:
@@ -523,7 +525,7 @@ def main():
                         # Trích xuất thông tin EDGEBAND classification và detail
                         edgeband_classification, edgeband_detail = extract_edgeband_classification_with_detail(page)
 
-                        # SỬ DỤNG PHƯƠNG PHÁP MỚI: Logic ưu tiên font thông minh
+                        # SỬ DỤNG PHƯƠNG PHÁP MỚI: Logic ưu tiên font thông minh - ĐẾM TẤT CẢ
                         char_numbers, char_orientations, font_info = extract_numbers_with_smart_font_priority(page)
 
                         if not char_numbers:
