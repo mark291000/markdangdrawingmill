@@ -276,7 +276,7 @@ def extract_numbers_with_font_priority(page):
         unique_final_numbers = list(set(final_numbers)) if final_numbers else []
         
         if len(unique_final_numbers) < 3 and available_fallback_fonts:
-            st.info(f"⚠️ Chỉ tìm được {len(unique_final_numbers)} số từ font ưu tiên. Đang mở rộng lên F4...")
+            # BỎ DÒNG THÔNG BÁO: st.info(f"⚠️ Chỉ tìm được {len(unique_final_numbers)} số từ font ưu tiên. Đang mở rộng lên F4...")
             
             # Thử trích xuất từ F4
             for font in available_fallback_fonts:
@@ -289,7 +289,7 @@ def extract_numbers_with_font_priority(page):
                         final_orientations = orientations_f4
                         final_font_info = font_info_f4
                         used_font = font
-                        st.success(f"✅ Đã tìm được {len(unique_numbers_f4)} số từ font {font}")
+                        # BỎ DÒNG THÔNG BÁO: st.success(f"✅ Đã tìm được {len(unique_numbers_f4)} số từ font {font}")
                         break
                     elif len(unique_numbers_f4) > len(unique_final_numbers):
                         # F4 có nhiều số hơn, sử dụng F4
@@ -600,13 +600,18 @@ def main():
                     st.subheader("📊 Kết quả - Bảng tóm tắt kích thước")
                     st.dataframe(final_summary, use_container_width=True)
                     
-                    # Download button cho bảng tóm tắt
-                    csv_summary = final_summary.to_csv(index=False, encoding='utf-8-sig')
+                    # Download button cho bảng tóm tắt - THAY ĐỔI THÀNH EXCEL
+                    excel_buffer = io.BytesIO()
+                    with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+                        final_summary.to_excel(writer, sheet_name='Dimension Summary', index=False)
+                    
+                    excel_buffer.seek(0)
+                    
                     st.download_button(
-                        label="📥 Tải bảng tóm tắt (CSV)",
-                        data=csv_summary,
-                        file_name="dimension_summary.csv",
-                        mime="text/csv"
+                        label="📥 Tải bảng tóm tắt (Excel)",
+                        data=excel_buffer.getvalue(),
+                        file_name="dimension_summary.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     )
                 
                 else:
