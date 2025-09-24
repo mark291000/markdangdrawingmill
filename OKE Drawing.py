@@ -125,7 +125,7 @@ def extract_profile_from_page(page):
         return ""
 
 def is_valid_font(fontname):
-    """Kiểm tra font name có hợp lệ không - CHẤP NHẬN CIDFont+F1, CIDFont+F2, CIDFont+F3, CIDFont+F4, F1, F2, F3, F4"""
+    """Kiểm tra font name có hợp lệ không"""
     valid_fonts = ['CIDFont+F4', 'CIDFont+F3', 'CIDFont+F2', 'CIDFont+F1', 'F4', 'F3', 'F2', 'F1']
     return fontname in valid_fonts or any(fontname.endswith(f) for f in valid_fonts)
 
@@ -205,8 +205,14 @@ def extract_numbers_from_specific_font(page, target_font):
 
     return numbers, orientations, font_info
 
-def extract_numbers_with_smart_font_priority(page):
-    """METHOD: Trích xuất số với logic ưu tiên font thông minh - ĐẾM TẤT CẢ SỐ"""
+def extract_numbers_with_complete_logic(page):
+    """
+    LOGIC HOÀN CHỈNH:
+    1. Nếu chỉ có F1 và F2 → ưu tiên lấy F2
+    2. Nếu chỉ có F2 và F3 → ưu tiên lấy F3
+    3. Nếu chỉ có F2 và F3 nhưng count F3 không đủ 3 number → nâng lên F4
+    4. Hiện tại chỉ lọc font name F2, F3. Nhưng nếu khi trích xuất font name không đủ 3 number → mở rộng lên F4
+    """
     try:
         chars = page.chars
         digit_chars = [c for c in chars if c['text'].isdigit()]
@@ -227,58 +233,97 @@ def extract_numbers_with_smart_font_priority(page):
         f3_fonts = [f for f in valid_fonts if 'F3' in f]
         f4_fonts = [f for f in valid_fonts if 'F4' in f]
 
-        # LOGIC ƯU TIÊN MỚI - ĐẾM TẤT CẢ SỐ
         chosen_font = None
         
-        # Trường hợp 1: Chỉ có F1 và F2 → ưu tiên F2
+        # BƯỚC 1: XÁC ĐỊNH FONT ƯU TIÊN THEO LOGIC YÊU CẦU
+        
+        # Case 1: Chỉ có F1 và F2 → ưu tiên F2
         if f1_fonts and f2_fonts and not f3_fonts and not f4_fonts:
             chosen_font = max(f2_fonts, key=get_font_priority)
         
-        # Trường hợp 2: Có F2 và F3 (bất kể có F4 hay không) → ưu tiên F3, nếu F3 < 3 số thì nâng lên F4
-        elif f2_fonts and f3_fonts:
-            # Thử F3 trước
+        # Case 2: Chỉ có F2 và F3 → kiểm tra F3, nếu không đủ 3 số thì nâng lên F4
+        elif f2_fonts and f3_fonts and not f1_fonts and not f4_fonts:
             f3_font = max(f3_fonts, key=get_font_priority)
-            numbers_f3, orientations_f3, font_info_f3 = extract_numbers_from_specific_font(page, f3_font)
+            numbers_f3, _, _ = extract_numbers_from_specific_font(page, f3_font)
             
-            # ĐẾM TẤT CẢ SỐ (không chỉ unique)
-            total_numbers_f3 = len(numbers_f3) if numbers_f3 else 0
-            
-            if total_numbers_f3 >= 3:
-                # F3 đủ 3 số, sử dụng F3
-                chosen_font = f3_font
+            if len(numbers_f3) >= 3:
+                chosen_font = f3_font  # F3 đủ 3 số
             else:
-                # F3 không đủ 3 số, nâng lên F4 nếu có
+                # F3 không đủ 3 số, cần mở rộng lên F4
                 if f4_fonts:
                     chosen_font = max(f4_fonts, key=get_font_priority)
                 else:
-                    # Không có F4, sử dụng F3 hoặc F2
-                    chosen_font = f3_font if numbers_f3 else max(f2_fonts, key=get_font_priority)
+                    chosen_font = f3_font  # Không có F4, dùng F3
         
-        # Trường hợp 3: Có cả F1, F2 nhưng không có F3 → ưu tiên F2
-        elif f1_fonts and f2_fonts and not f3_fonts:
-            chosen_font = max(f2_fonts, key=get_font_priority)
+        # Case 3: Có F2 và F3 và cả F4 → kiểm tra F3, nếu không đủ 3 số thì nâng lên F4
+        elif f2_fonts and f3_fonts and f4_fonts:
+            f3_font = max(f3_fonts, key=get_font_priority)
+            numbers_f3, _, _ = extract_numbers_from_specific_font(page, f3_font)
+            
+            if len(numbers_f3) >= 3:
+                chosen_font = f3_font  # F3 đủ 3 số
+            else:
+                chosen_font = max(f4_fonts, key=get_font_priority)  # Nâng lên F4
         
-        # Trường hợp 4: Chỉ có F3 → sử dụng F3
-        elif f3_fonts and not f1_fonts and not f2_fonts:
-            chosen_font = max(f3_fonts, key=get_font_priority)
+        # Case 4: Chỉ có một loại font
+        elif f3_fonts and not f2_fonts and not f1_fonts:
+            # Chỉ có F3 → kiểm tra F3, nếu không đủ 3 số và có F4 thì nâng lên F4
+            f3_font = max(f3_fonts, key=get_font_priority)
+            numbers_f3, _, _ = extract_numbers_from_specific_font(page, f3_font)
+            
+            if len(numbers_f3) >= 3:
+                chosen_font = f3_font
+            elif f4_fonts:
+                chosen_font = max(f4_fonts, key=get_font_priority)
+            else:
+                chosen_font = f3_font
         
-        # Trường hợp 5: Chỉ có F2 → sử dụng F2
-        elif f2_fonts and not f1_fonts and not f3_fonts:
-            chosen_font = max(f2_fonts, key=get_font_priority)
+        elif f2_fonts and not f3_fonts and not f1_fonts:
+            # Chỉ có F2 → kiểm tra F2, nếu không đủ 3 số và có F4 thì nâng lên F4
+            f2_font = max(f2_fonts, key=get_font_priority)
+            numbers_f2, _, _ = extract_numbers_from_specific_font(page, f2_font)
+            
+            if len(numbers_f2) >= 3:
+                chosen_font = f2_font
+            elif f4_fonts:
+                chosen_font = max(f4_fonts, key=get_font_priority)
+            else:
+                chosen_font = f2_font
         
-        # Trường hợp 6: Chỉ có F1 → sử dụng F1
         elif f1_fonts and not f2_fonts and not f3_fonts:
             chosen_font = max(f1_fonts, key=get_font_priority)
         
-        # Trường hợp 7: Chỉ có F4 → sử dụng F4
         elif f4_fonts and not f1_fonts and not f2_fonts and not f3_fonts:
             chosen_font = max(f4_fonts, key=get_font_priority)
         
-        # Trường hợp mặc định: chọn font có priority cao nhất
+        # Case 5: Có nhiều loại font khác → ưu tiên F3 > F2 > F1, kiểm tra mở rộng F4
         else:
-            chosen_font = max(valid_fonts, key=get_font_priority)
+            if f3_fonts:
+                f3_font = max(f3_fonts, key=get_font_priority)
+                numbers_f3, _, _ = extract_numbers_from_specific_font(page, f3_font)
+                
+                if len(numbers_f3) >= 3:
+                    chosen_font = f3_font
+                elif f4_fonts:
+                    chosen_font = max(f4_fonts, key=get_font_priority)
+                else:
+                    chosen_font = f3_font
+            elif f2_fonts:
+                f2_font = max(f2_fonts, key=get_font_priority)
+                numbers_f2, _, _ = extract_numbers_from_specific_font(page, f2_font)
+                
+                if len(numbers_f2) >= 3:
+                    chosen_font = f2_font
+                elif f4_fonts:
+                    chosen_font = max(f4_fonts, key=get_font_priority)
+                else:
+                    chosen_font = f2_font
+            elif f1_fonts:
+                chosen_font = max(f1_fonts, key=get_font_priority)
+            else:
+                chosen_font = max(valid_fonts, key=get_font_priority)
 
-        # Trích xuất số từ font đã chọn
+        # BƯỚC 2: TRÍCH XUẤT SỐ TỪ FONT ĐÃ CHỌN
         if chosen_font:
             final_numbers, final_orientations, final_font_info = extract_numbers_from_specific_font(page, chosen_font)
             
@@ -529,8 +574,8 @@ def main():
                         # Trích xuất thông tin EDGEBAND classification và detail
                         edgeband_classification, edgeband_detail = extract_edgeband_classification_with_detail(page)
 
-                        # SỬ DỤNG PHƯƠNG PHÁP MỚI: Logic ưu tiên font thông minh - ĐẾM TẤT CẢ
-                        char_numbers, char_orientations, font_info = extract_numbers_with_smart_font_priority(page)
+                        # SỬ DỤNG LOGIC HOÀN CHỈNH
+                        char_numbers, char_orientations, font_info = extract_numbers_with_complete_logic(page)
 
                         if not char_numbers:
                             continue
