@@ -125,8 +125,8 @@ def extract_profile_from_page(page):
         return ""
 
 def is_valid_font(fontname):
-    """Kiểm tra font name có hợp lệ không"""
-    valid_fonts = ['CIDFont+F4', 'CIDFont+F3', 'CIDFont+F2', 'CIDFont+F1', 'F4', 'F3', 'F2', 'F1']
+    """Kiểm tra font name có hợp lệ không - BỔ SUNG UYKZBA+Arial-Black"""
+    valid_fonts = ['CIDFont+F4', 'CIDFont+F3', 'CIDFont+F2', 'CIDFont+F1', 'F4', 'F3', 'F2', 'F1', 'UYKZBA+Arial-Black']
     return fontname in valid_fonts or any(fontname.endswith(f) for f in valid_fonts)
 
 def get_font_priority(fontname):
@@ -147,18 +147,89 @@ def get_font_priority(fontname):
         return 0  # F4 có ưu tiên thấp nhất
     elif 'F4' in fontname:
         return 0
+    elif 'UYKZBA+Arial-Black' in fontname:
+        return -1  # Ưu tiên thấp nhất, chỉ dùng khi không có F nào
     else:
-        return -1  # Không hợp lệ
+        return -2  # Không hợp lệ
+
+def extract_decimal_numbers_from_text(text):
+    """Trích xuất số thập phân từ text"""
+    decimal_pattern = r'\b\d+\.\d+\b'
+    matches = re.findall(decimal_pattern, text)
+    return [float(match) for match in matches]
+
+def process_character_for_decimal(chars):
+    """Xử lý các ký tự để tìm số thập phân"""
+    decimal_numbers = []
+    
+    # Sắp xếp chars theo vị trí
+    sorted_chars = sorted(chars, key=lambda c: (c['top'], c['x0']))
+    
+    # Tạo text từ các ký tự liền kề
+    i = 0
+    while i < len(sorted_chars):
+        current_text = sorted_chars[i]['text']
+        j = i + 1
+        
+        # Kiểm tra các ký tự liền kề để tạo thành số
+        while j < len(sorted_chars):
+            next_char = sorted_chars[j]
+            current_char = sorted_chars[j-1]
+            
+            # Kiểm tra khoảng cách giữa các ký tự
+            distance = math.sqrt(
+                (current_char['x0'] - next_char['x0'])**2 +
+                (current_char['top'] - next_char['top'])**2
+            )
+            
+            if distance < 15:  # Ký tự liền kề
+                current_text += next_char['text']
+                j += 1
+            else:
+                break
+        
+        # Kiểm tra xem current_text có chứa số thập phân không
+        decimal_match = re.search(r'\d+\.\d+', current_text)
+        if decimal_match:
+            try:
+                decimal_value = float(decimal_match.group())
+                if 1 <= decimal_value <= 3500:
+                    decimal_numbers.append(decimal_value)
+            except:
+                pass
+        
+        i = j if j > i + 1 else i + 1
+    
+    return decimal_numbers
 
 def extract_numbers_from_specific_font(page, target_font):
-    """Trích xuất số từ một font cụ thể"""
+    """Trích xuất số từ một font cụ thể - CẢI THIỆN XỬ LÝ SỐ THẬP PHÂN VÀ SỐ DỌC"""
     numbers = []
     orientations = {}
     font_info = {}
 
     try:
         chars = page.chars
-        digit_chars = [c for c in chars if c['text'].isdigit()]
+        
+        # Lọc chars theo font target
+        target_chars = [c for c in chars if c.get('fontname', 'Unknown') == target_font]
+        
+        if not target_chars:
+            return numbers, orientations, font_info
+
+        # XỬ LÝ SỐ THẬP PHÂN TRƯỚC
+        decimal_numbers = process_character_for_decimal(target_chars)
+        for decimal_num in decimal_numbers:
+            numbers.append(decimal_num)
+            orientations[f"{decimal_num}_{len(numbers)}"] = 'Decimal'
+            font_info[f"{decimal_num}_{len(numbers)}"] = {
+                'chars': [],
+                'fontname': target_font,
+                'value': decimal_num
+            }
+
+        # XỬ LÝ SỐ NGUYÊN
+        digit_chars = [c for c in target_chars if c['text'].isdigit()]
 
         if not digit_chars:
             return numbers, orientations, font_info
@@ -174,7 +245,6 @@ def extract_numbers_from_specific_font(page, target_font):
                     
                     # CHỈ LẤY SỐ CỦA FONT MỤC TIÊU
                     if (1 <= num_value <= 3500 and fontname == target_font):
-                        
                         numbers.append(num_value)
                         orientations[f"{num_value}_{len(numbers)}"] = 'Single'
                         font_info[f"{num_value}_{len(numbers)}"] = {
@@ -207,98 +277,66 @@ def extract_numbers_from_specific_font(page, target_font):
 
 def extract_numbers_with_complete_logic(page):
     """
-    LOGIC HOÀN CHỈNH:
-    1. Nếu chỉ có F1 và F2 → ưu tiên lấy F2
-    2. Nếu chỉ có F2 và F3 → ưu tiên lấy F3
-    3. Nếu chỉ có F2 và F3 nhưng count F3 không đủ 3 number → nâng lên F4
-    4. Hiện tại chỉ lọc font name F2, F3. Nhưng nếu khi trích xuất font name không đủ 3 number → mở rộng lên F4
+    LOGIC HOÀN CHỈNH CẬP NHẬT:
+    1. Nếu đã nâng lên F cao nhất nhưng vẫn chỉ có 1 number thì ghi cho Length (mm), 2 number thì ghi cho Length (mm), Width (mm)
+    2. Nếu không có font name F nào thì lấy những number thuộc fontname UYKZBA+Arial-Black
     """
     try:
         chars = page.chars
-        digit_chars = [c for c in chars if c['text'].isdigit()]
+        all_chars = [c for c in chars if c['text'].isdigit() or c['text'] == '.']
 
-        if not digit_chars:
+        if not all_chars:
             return [], {}, {}
 
         # Lấy tất cả font có trong page
-        all_fonts = list(set([c.get('fontname', 'Unknown') for c in digit_chars]))
+        all_fonts = list(set([c.get('fontname', 'Unknown') for c in all_chars]))
         valid_fonts = [f for f in all_fonts if is_valid_font(f)]
         
-        if not valid_fonts:
-            return [], {}, {}
-
-        # Phân loại font theo loại
-        f1_fonts = [f for f in valid_fonts if 'F1' in f]
-        f2_fonts = [f for f in valid_fonts if 'F2' in f]
-        f3_fonts = [f for f in valid_fonts if 'F3' in f]
-        f4_fonts = [f for f in valid_fonts if 'F4' in f]
-
+        # Tách riêng F fonts và Arial-Black font
+        f_fonts = [f for f in valid_fonts if any(x in f for x in ['F1', 'F2', 'F3', 'F4'])]
+        arial_black_fonts = [f for f in valid_fonts if 'UYKZBA+Arial-Black' in f]
+        
         chosen_font = None
         
-        # BƯỚC 1: XÁC ĐỊNH FONT ƯU TIÊN THEO LOGIC YÊU CẦU
-        
-        # Case 1: Chỉ có F1 và F2 → ưu tiên F2
-        if f1_fonts and f2_fonts and not f3_fonts and not f4_fonts:
-            chosen_font = max(f2_fonts, key=get_font_priority)
-        
-        # Case 2: Chỉ có F2 và F3 → kiểm tra F3, nếu không đủ 3 số thì nâng lên F4
-        elif f2_fonts and f3_fonts and not f1_fonts and not f4_fonts:
-            f3_font = max(f3_fonts, key=get_font_priority)
-            numbers_f3, _, _ = extract_numbers_from_specific_font(page, f3_font)
+        # BƯỚC 1: ƯU TIÊN F FONTS TRƯỚC
+        if f_fonts:
+            # Phân loại font theo loại
+            f1_fonts = [f for f in f_fonts if 'F1' in f]
+            f2_fonts = [f for f in f_fonts if 'F2' in f]
+            f3_fonts = [f for f in f_fonts if 'F3' in f]
+            f4_fonts = [f for f in f_fonts if 'F4' in f]
+
+            # Case 1: Chỉ có F1 và F2 → ưu tiên F2
+            if f1_fonts and f2_fonts and not f3_fonts and not f4_fonts:
+                chosen_font = max(f2_fonts, key=get_font_priority)
             
-            if len(numbers_f3) >= 3:
-                chosen_font = f3_font  # F3 đủ 3 số
-            else:
-                # F3 không đủ 3 số, cần mở rộng lên F4
-                if f4_fonts:
-                    chosen_font = max(f4_fonts, key=get_font_priority)
+            # Case 2: Chỉ có F2 và F3 → kiểm tra F3, nếu không đủ 3 số thì nâng lên F4
+            elif f2_fonts and f3_fonts and not f1_fonts and not f4_fonts:
+                f3_font = max(f3_fonts, key=get_font_priority)
+                numbers_f3, _, _ = extract_numbers_from_specific_font(page, f3_font)
+                
+                if len(numbers_f3) >= 3:
+                    chosen_font = f3_font  # F3 đủ 3 số
                 else:
-                    chosen_font = f3_font  # Không có F4, dùng F3
-        
-        # Case 3: Có F2 và F3 và cả F4 → kiểm tra F3, nếu không đủ 3 số thì nâng lên F4
-        elif f2_fonts and f3_fonts and f4_fonts:
-            f3_font = max(f3_fonts, key=get_font_priority)
-            numbers_f3, _, _ = extract_numbers_from_specific_font(page, f3_font)
+                    # F3 không đủ 3 số, cần mở rộng lên F4
+                    if f4_fonts:
+                        chosen_font = max(f4_fonts, key=get_font_priority)
+                    else:
+                        chosen_font = f3_font  # Không có F4, dùng F3
             
-            if len(numbers_f3) >= 3:
-                chosen_font = f3_font  # F3 đủ 3 số
-            else:
-                chosen_font = max(f4_fonts, key=get_font_priority)  # Nâng lên F4
-        
-        # Case 4: Chỉ có một loại font
-        elif f3_fonts and not f2_fonts and not f1_fonts:
-            # Chỉ có F3 → kiểm tra F3, nếu không đủ 3 số và có F4 thì nâng lên F4
-            f3_font = max(f3_fonts, key=get_font_priority)
-            numbers_f3, _, _ = extract_numbers_from_specific_font(page, f3_font)
+            # Case 3: Có F2 và F3 và cả F4 → kiểm tra F3, nếu không đủ 3 số thì nâng lên F4
+            elif f2_fonts and f3_fonts and f4_fonts:
+                f3_font = max(f3_fonts, key=get_font_priority)
+                numbers_f3, _, _ = extract_numbers_from_specific_font(page, f3_font)
+                
+                if len(numbers_f3) >= 3:
+                    chosen_font = f3_font  # F3 đủ 3 số
+                else:
+                    chosen_font = max(f4_fonts, key=get_font_priority)  # Nâng lên F4
             
-            if len(numbers_f3) >= 3:
-                chosen_font = f3_font
-            elif f4_fonts:
-                chosen_font = max(f4_fonts, key=get_font_priority)
-            else:
-                chosen_font = f3_font
-        
-        elif f2_fonts and not f3_fonts and not f1_fonts:
-            # Chỉ có F2 → kiểm tra F2, nếu không đủ 3 số và có F4 thì nâng lên F4
-            f2_font = max(f2_fonts, key=get_font_priority)
-            numbers_f2, _, _ = extract_numbers_from_specific_font(page, f2_font)
-            
-            if len(numbers_f2) >= 3:
-                chosen_font = f2_font
-            elif f4_fonts:
-                chosen_font = max(f4_fonts, key=get_font_priority)
-            else:
-                chosen_font = f2_font
-        
-        elif f1_fonts and not f2_fonts and not f3_fonts:
-            chosen_font = max(f1_fonts, key=get_font_priority)
-        
-        elif f4_fonts and not f1_fonts and not f2_fonts and not f3_fonts:
-            chosen_font = max(f4_fonts, key=get_font_priority)
-        
-        # Case 5: Có nhiều loại font khác → ưu tiên F3 > F2 > F1, kiểm tra mở rộng F4
-        else:
-            if f3_fonts:
+            # Case 4: Chỉ có một loại font
+            elif f3_fonts and not f2_fonts and not f1_fonts:
+                # Chỉ có F3 → kiểm tra F3, nếu không đủ 3 số và có F4 thì nâng lên F4
                 f3_font = max(f3_fonts, key=get_font_priority)
                 numbers_f3, _, _ = extract_numbers_from_specific_font(page, f3_font)
                 
@@ -308,7 +346,9 @@ def extract_numbers_with_complete_logic(page):
                     chosen_font = max(f4_fonts, key=get_font_priority)
                 else:
                     chosen_font = f3_font
-            elif f2_fonts:
+            
+            elif f2_fonts and not f3_fonts and not f1_fonts:
+                # Chỉ có F2 → kiểm tra F2, nếu không đủ 3 số và có F4 thì nâng lên F4
                 f2_font = max(f2_fonts, key=get_font_priority)
                 numbers_f2, _, _ = extract_numbers_from_specific_font(page, f2_font)
                 
@@ -318,12 +358,45 @@ def extract_numbers_with_complete_logic(page):
                     chosen_font = max(f4_fonts, key=get_font_priority)
                 else:
                     chosen_font = f2_font
-            elif f1_fonts:
+            
+            elif f1_fonts and not f2_fonts and not f3_fonts:
                 chosen_font = max(f1_fonts, key=get_font_priority)
+            
+            elif f4_fonts and not f1_fonts and not f2_fonts and not f3_fonts:
+                chosen_font = max(f4_fonts, key=get_font_priority)
+            
+            # Case 5: Có nhiều loại font khác → ưu tiên F3 > F2 > F1, kiểm tra mở rộng F4
             else:
-                chosen_font = max(valid_fonts, key=get_font_priority)
-
-        # BƯỚC 2: TRÍCH XUẤT SỐ TỪ FONT ĐÃ CHỌN
+                if f3_fonts:
+                    f3_font = max(f3_fonts, key=get_font_priority)
+                    numbers_f3, _, _ = extract_numbers_from_specific_font(page, f3_font)
+                    
+                    if len(numbers_f3) >= 3:
+                        chosen_font = f3_font
+                    elif f4_fonts:
+                        chosen_font = max(f4_fonts, key=get_font_priority)
+                    else:
+                        chosen_font = f3_font
+                elif f2_fonts:
+                    f2_font = max(f2_fonts, key=get_font_priority)
+                    numbers_f2, _, _ = extract_numbers_from_specific_font(page, f2_font)
+                    
+                    if len(numbers_f2) >= 3:
+                        chosen_font = f2_font
+                    elif f4_fonts:
+                        chosen_font = max(f4_fonts, key=get_font_priority)
+                    else:
+                        chosen_font = f2_font
+                elif f1_fonts:
+                    chosen_font = max(f1_fonts, key=get_font_priority)
+                else:
+                    chosen_font = max(f_fonts, key=get_font_priority)
+        
+        # BƯỚC 2: NẾU KHÔNG CÓ F FONTS NÀO, DÙNG ARIAL-BLACK
+        elif arial_black_fonts:
+            chosen_font = arial_black_fonts[0]  # Chọn Arial-Black font
+        
+        # BƯỚC 3: TRÍCH XUẤT SỐ TỪ FONT ĐÃ CHỌN
         if chosen_font:
             final_numbers, final_orientations, final_font_info = extract_numbers_from_specific_font(page, chosen_font)
             
@@ -339,7 +412,7 @@ def extract_numbers_with_complete_logic(page):
         return [], {}, {}
 
 def create_character_groups_improved(digit_chars, target_font):
-    """Tạo các nhóm ký tự - CHỈ GOM CÁC KÝ TỰ CỦA FONT MỤC TIÊU"""
+    """Tạo các nhóm ký tự - CẢI THIỆN XỬ LÝ SỐ DỌC ĐẦY ĐỦ"""
     char_groups = []
     used_chars = set()
 
@@ -373,7 +446,7 @@ def create_character_groups_improved(digit_chars, target_font):
     return char_groups
 
 def should_group_characters(base_char, other_char, current_group, target_font):
-    """Xác định xem 2 ký tự có nên được nhóm lại không - CHỈ GOM CÙNG FONT MỤC TIÊU"""
+    """Xác định xem 2 ký tự có nên được nhóm lại không - CẢI THIỆN XỬ LÝ SỐ DỌC"""
     try:
         # Kiểm tra font - chỉ nhóm các ký tự cùng font mục tiêu
         base_font = base_char.get('fontname', 'Unknown')
@@ -382,14 +455,14 @@ def should_group_characters(base_char, other_char, current_group, target_font):
         if not (base_font == target_font and other_font == target_font):
             return False
         
-        # Tăng khoảng cách cho phép để bắt số dọc đầy đủ
+        # TĂNG KHOẢNG CÁCH CHO PHÉP ĐỂ BẮT SỐ DỌC ĐẦY ĐỦ
         distance = math.sqrt(
             (base_char['x0'] - other_char['x0'])**2 +
             (base_char['top'] - other_char['top'])**2
         )
 
-        # TĂNG KHOẢNG CÁCH CHO PHÉP ĐỂ BẮT SỐ DỌC
-        if distance > 50:
+        # Tăng khoảng cách cho phép
+        if distance > 60:  # Tăng từ 50 lên 60
             return False
 
         if len(current_group) > 1:
@@ -400,11 +473,11 @@ def should_group_characters(base_char, other_char, current_group, target_font):
 
             if is_group_vertical:
                 group_x_center = sum(c['x0'] for c in current_group) / len(current_group)
-                if abs(other_char['x0'] - group_x_center) > 15:
+                if abs(other_char['x0'] - group_x_center) > 20:  # Tăng từ 15 lên 20
                     return False
             else:
                 group_y_center = sum(c['top'] for c in current_group) / len(current_group)
-                if abs(other_char['top'] - group_y_center) > 10:
+                if abs(other_char['top'] - group_y_center) > 15:  # Tăng từ 10 lên 15
                     return False
 
         return True
@@ -413,7 +486,7 @@ def should_group_characters(base_char, other_char, current_group, target_font):
         return False
 
 def process_character_group_smart(group, extracted_numbers, target_font):
-    """Xử lý nhóm ký tự thông minh - CHỈ XỬ LÝ FONT MỤC TIÊU"""
+    """Xử lý nhóm ký tự thông minh - CẢI THIỆN XỬ LÝ SỐ DỌC"""
     try:
         if len(group) < 2:
             return None
@@ -437,6 +510,7 @@ def process_character_group_smart(group, extracted_numbers, target_font):
 
             candidates = []
 
+            # XỬ LÝ SỐ DỌC - ĐẢM BẢO LẤY ĐẦY ĐỦ CÁC CHỮ SỐ
             try:
                 num_original = int(v_text)
                 if 1 <= num_original <= 3500:
@@ -476,7 +550,7 @@ def process_character_group_smart(group, extracted_numbers, target_font):
         return None
 
 def create_dimension_summary(df):
-    """Tạo bảng tóm tắt - WIDTH LÀ SỐ GẦN NHỎ NHẤT"""
+    """Tạo bảng tóm tắt - CẬP NHẬT LOGIC ĐIỀN THÔNG SỐ TỪ TRÁI QUA PHẢI"""
     if len(df) == 0:
         return pd.DataFrame(columns=["Drawing#", "Length (mm)", "Width (mm)", "Height (mm)", "FOIL", "EDGEBAND", "Profile"])
     
@@ -489,20 +563,20 @@ def create_dimension_summary(df):
     width_number = ""
     height_number = ""
     
+    # CẬP NHẬT LOGIC: ƯU TIÊN ĐIỀN TỪ TRÁI QUA PHẢI
     if len(unique_numbers) == 1:
-        # Chỉ có 1 số: L = W = H
+        # Chỉ có 1 số: chỉ điền Length
         length_number = str(unique_numbers[0])
-        width_number = str(unique_numbers[0])
-        height_number = str(unique_numbers[0])
+        # Width và Height để trống
         
     elif len(unique_numbers) == 2:
-        # Có 2 số: L = số lớn, W = H = số nhỏ
+        # Có 2 số: điền Length và Width
         length_number = str(unique_numbers[0])    # Số lớn nhất
         width_number = str(unique_numbers[1])     # Số nhỏ nhất
-        height_number = str(unique_numbers[1])    # Số nhỏ nhất = width
+        # Height để trống
         
     elif len(unique_numbers) >= 3:
-        # Có 3+ số: L = lớn nhất, W = gần nhỏ nhất, H = nhỏ nhất
+        # Có 3+ số: điền đầy đủ L, W, H
         length_number = str(unique_numbers[0])    # Số lớn nhất
         width_number = str(unique_numbers[-2])    # Số gần nhỏ nhất (thứ 2 từ cuối)
         height_number = str(unique_numbers[-1])   # Số nhỏ nhất
@@ -574,7 +648,7 @@ def main():
                         # Trích xuất thông tin EDGEBAND classification và detail
                         edgeband_classification, edgeband_detail = extract_edgeband_classification_with_detail(page)
 
-                        # SỬ DỤNG LOGIC HOÀN CHỈNH
+                        # SỬ DỤNG LOGIC HOÀN CHỈNH CẬP NHẬT
                         char_numbers, char_orientations, font_info = extract_numbers_with_complete_logic(page)
 
                         if not char_numbers:
