@@ -550,36 +550,36 @@ def process_character_group_smart(group, extracted_numbers, target_font):
         return None
 
 def create_dimension_summary(df):
-    """Tạo bảng tóm tắt - CẬP NHẬT LOGIC ĐIỀN THÔNG SỐ TỪ TRÁI QUA PHẢI"""
+    """Tạo bảng tóm tắt - CẬP NHẬT LOGIC ĐIỀN THÔNG SỐ TỪ TRÁI QUA PHẢI - CHẤP NHẬN SỐ TRÙNG"""
     if len(df) == 0:
         return pd.DataFrame(columns=["Drawing#", "Length (mm)", "Width (mm)", "Height (mm)", "FOIL", "EDGEBAND", "Profile"])
     
-    # Lấy tất cả số và sắp xếp theo thứ tự giảm dần
+    # Lấy tất cả số và sắp xếp theo thứ tự giảm dần (KHÔNG loại bỏ trùng lặp)
     all_numbers = df['Number_Int'].tolist()
-    unique_numbers = sorted(list(set(all_numbers)), reverse=True)  # Từ lớn đến nhỏ
+    sorted_numbers = sorted(all_numbers, reverse=True)  # Từ lớn đến nhỏ, GIỮ NGUYÊN SỐ TRÙNG
     
     # Khởi tạo các giá trị dimension
     length_number = ""
     width_number = ""
     height_number = ""
     
-    # CẬP NHẬT LOGIC: ƯU TIÊN ĐIỀN TỪ TRÁI QUA PHẢI
-    if len(unique_numbers) == 1:
+    # CẬP NHẬT LOGIC: ƯU TIÊN ĐIỀN TỪ TRÁI QUA PHẢI - CHẤP NHẬN SỐ TRÙNG
+    if len(sorted_numbers) == 1:
         # Chỉ có 1 số: chỉ điền Length
-        length_number = str(unique_numbers[0])
+        length_number = str(sorted_numbers[0])
         # Width và Height để trống
         
-    elif len(unique_numbers) == 2:
-        # Có 2 số: điền Length và Width
-        length_number = str(unique_numbers[0])    # Số lớn nhất
-        width_number = str(unique_numbers[1])     # Số nhỏ nhất
+    elif len(sorted_numbers) == 2:
+        # Có 2 số: điền Length và Width (có thể trùng nhau)
+        length_number = str(sorted_numbers[0])    # Số đầu tiên (lớn nhất hoặc bằng)
+        width_number = str(sorted_numbers[1])     # Số thứ hai
         # Height để trống
         
-    elif len(unique_numbers) >= 3:
-        # Có 3+ số: điền đầy đủ L, W, H
-        length_number = str(unique_numbers[0])    # Số lớn nhất
-        width_number = str(unique_numbers[-2])    # Số gần nhỏ nhất (thứ 2 từ cuối)
-        height_number = str(unique_numbers[-1])   # Số nhỏ nhất
+    elif len(sorted_numbers) >= 3:
+        # Có 3+ số: điền đầy đủ L, W, H (chấp nhận trùng lặp)
+        length_number = str(sorted_numbers[0])    # Số đầu tiên (lớn nhất)
+        width_number = str(sorted_numbers[1])     # Số thứ hai 
+        height_number = str(sorted_numbers[2])    # Số thứ ba
     
     # Lấy filename
     filename = df.iloc[0]['File']
@@ -730,3 +730,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
