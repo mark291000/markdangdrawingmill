@@ -199,16 +199,30 @@ def check_grain_exists_in_page(page):
         return False
 
 def extract_laminate_classification_with_detail(page):
-    """Trích xuất thông tin Laminate classification"""
+    """Trích xuất thông tin Laminate classification với logic ưu tiên"""
     try:
+        # Danh sách keyword theo thứ tự ưu tiên (index càng nhỏ càng ưu tiên)
         keywords = [
-            "FLEX PAPER/PAPER",
-            "GLUEABLE LAM",
-            "GLUEABLE LAM/TC BLACK (IF APPLICABLE)",
-            "LAM/MASKING (IF APPLICABLE)",
-            "RAW",
-            "LAM"
+            "FLEX PAPER/PAPER",                      # Ưu tiên 0 (cao nhất)
+            "GLUEABLE LAM",                          # Ưu tiên 1
+            "GLUEABLE LAM/TC BLACK (IF APPLICABLE)", # Ưu tiên 2
+            "LAM/MASKING (IF APPLICABLE)",           # Ưu tiên 3
+            "RAW",                                   # Ưu tiên 4
+            "LAM"                                    # Ưu tiên 5 (thấp nhất)
         ]
+
+        def find_highest_priority_keyword(line, keywords):
+            """Tìm keyword có độ ưu tiên cao nhất trong một dòng"""
+            found_keywords = []
+            for priority, kw in enumerate(keywords):
+                if kw in line:
+                    found_keywords.append((priority, kw))
+            
+            # Trả về keyword có độ ưu tiên cao nhất (index nhỏ nhất)
+            if found_keywords:
+                found_keywords.sort(key=lambda x: x[0])  # Sắp xếp theo độ ưu tiên
+                return found_keywords[0][1]  # Trả về keyword
+            return None
 
         lines = []
         page_text = page.extract_text()
@@ -220,22 +234,31 @@ def extract_laminate_classification_with_detail(page):
 
         all_found = []
         for idx, (line_num, line) in enumerate(lines):
-            for kw in keywords:
-                if kw in line:
-                    all_found.append({
-                        "Index": idx,
-                        "Line": line_num,
-                        "Keyword": kw,
-                        "Text": line
-                    })
+            # Tìm keyword có độ ưu tiên cao nhất trong dòng
+            priority_keyword = find_highest_priority_keyword(line, keywords)
+            
+            if priority_keyword:
+                keyword_priority = keywords.index(priority_keyword)
+                all_found.append({
+                    "Index": idx,
+                    "Line": line_num,
+                    "Keyword": priority_keyword,
+                    "Priority": keyword_priority,
+                    "Text": line
+                })
 
+        # Sắp xếp các keyword tìm được theo độ ưu tiên (priority thấp hơn = ưu tiên cao hơn)
+        all_found.sort(key=lambda x: (x["Priority"], x["Index"]))
+
+        # Lấy 2 keyword có độ ưu tiên cao nhất
         if len(all_found) >= 2:
             first_kw = all_found[0]["Keyword"]
             second_kw = all_found[1]["Keyword"]
             result = f"{first_kw}/{second_kw}"
-            detail = f"Found: {first_kw} (line {all_found[0]['Line']}), {second_kw} (line {all_found[1]['Line']})"
+            detail = f"Found: {first_kw} (priority {all_found[0]['Priority']+1}, line {all_found[0]['Line']}), {second_kw} (priority {all_found[1]['Priority']+1}, line {all_found[1]['Line']})"
             return result, detail
         elif len(all_found) == 1:
+            # Nếu chỉ có 1 keyword thì trả về rỗng theo logic gốc
             return "", ""
         else:
             return "", ""
@@ -1543,6 +1566,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
