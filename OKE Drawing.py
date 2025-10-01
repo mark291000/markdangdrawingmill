@@ -159,6 +159,124 @@ def calculate_advanced_metrics_with_rotation(group, number, x_pos, y_pos, orient
             'text_angle': 0.0
         }
 
+def check_same_row_and_close_spacing(char1, char2, tolerance_y=2.0, max_spacing=0.5):
+    """Kiểm tra 2 ký tự có cùng hàng (y tương đương) và spacing nhỏ"""
+    try:
+        # Kiểm tra cùng tọa độ y (trong khoảng tolerance)
+        y_diff = abs(char1.get('top', 0) - char2.get('top', 0))
+        if y_diff > tolerance_y:
+            return False
+        
+        # Tính spacing giữa 2 ký tự (khoảng cách từ cuối char1 đến đầu char2)
+        char1_right = char1.get('x1', char1.get('x0', 0))
+        char2_left = char2.get('x0', 0)
+        
+        spacing = abs(char2_left - char1_right)
+        
+        return spacing <= max_spacing
+        
+    except Exception:
+        return False
+
+def should_group_characters_with_decimals(base_char, other_char, current_group, preferred_font):
+    """Xác định xem 2 ký tự có nên được nhóm lại không - CẢI TIẾN LOGIC"""
+    try:
+        base_font = base_char.get('fontname', 'Unknown')
+        other_font = other_char.get('fontname', 'Unknown')
+
+        if not (base_font == preferred_font and other_font == preferred_font):
+            return False
+
+        # Kiểm tra khoảng cách tổng thể
+        distance = math.sqrt(
+            (base_char['x0'] - other_char['x0'])**2 +
+            (base_char['top'] - other_char['top'])**2
+        )
+
+        if distance > 30:
+            return False
+
+        # ⭐ LOGIC MỚI: Kiểm tra cùng hàng và spacing nhỏ
+        if check_same_row_and_close_spacing(base_char, other_char):
+            return True
+
+        # Kiểm tra với nhóm hiện tại
+        if len(current_group) > 1:
+            # Kiểm tra xem other_char có cùng hàng với bất kỳ char nào trong group không
+            for group_char in current_group:
+                if check_same_row_and_close_spacing(group_char, other_char):
+                    return True
+            
+            # Logic cũ cho trường hợp vertical/horizontal
+            group_x_span = max(c['x0'] for c in current_group) - min(c['x0'] for c in current_group)
+            group_y_span = max(c['top'] for c in current_group) - min(c['top'] for c in current_group)
+
+            is_group_vertical = group_y_span > group_x_span * 1.5
+
+            if is_group_vertical:
+                group_x_center = sum(c['x0'] for c in current_group) / len(current_group)
+                if abs(other_char['x0'] - group_x_center) > 10:
+                    return False
+            else:
+                group_y_center = sum(c['top'] for c in current_group) / len(current_group)
+                if abs(other_char['top'] - group_y_center) > 8:
+                    return False
+
+        return True
+
+    except Exception:
+        return False
+
+def should_group_characters_for_all_numbers_with_decimals(base_char, other_char, current_group):
+    """Xác định xem 2 ký tự có nên được nhóm lại không - CẢI TIẾN LOGIC CHO TẤT CẢ SỐ"""
+    try:
+        # Kiểm tra khoảng cách tổng thể
+        distance = math.sqrt(
+            (base_char['x0'] - other_char['x0'])**2 +
+            (base_char['top'] - other_char['top'])**2
+        )
+
+        if distance > 30:
+            return False
+
+        # ⭐ LOGIC MỚI: Kiểm tra cùng hàng và spacing nhỏ
+        if check_same_row_and_close_spacing(base_char, other_char):
+            return True
+
+        # Kiểm tra font khác nhau
+        base_font = base_char.get('fontname', 'Unknown')
+        other_font = other_char.get('fontname', 'Unknown')
+        if base_font != other_font:
+            if distance > 20:
+                return False
+
+        # Kiểm tra với nhóm hiện tại
+        if len(current_group) > 1:
+            # Kiểm tra xem other_char có cùng hàng với bất kỳ char nào trong group không
+            for group_char in current_group:
+                if check_same_row_and_close_spacing(group_char, other_char):
+                    return True
+            
+            # Logic cũ cho trường hợp vertical/horizontal
+            group_x_span = max(c['x0'] for c in current_group) - min(c['x0'] for c in current_group)
+            group_y_span = max(c['top'] for c in current_group) - min(c['top'] for c in current_group)
+
+            is_group_vertical = group_y_span > group_x_span * 1.5
+
+            if is_group_vertical:
+                group_x_center = sum(c['x0'] for c in current_group) / len(current_group)
+                if abs(other_char['x0'] - group_x_center) > 10:
+                    return False
+            else:
+                group_y_center = sum(c['top'] for c in current_group) / len(current_group)
+                if abs(other_char['top'] - group_y_center) > 8:
+                    return False
+
+        return True
+
+    except Exception:
+        return False
+
 def calculate_score_for_group(group_data):
     """Tính SCORE cho nhóm theo các tiêu chí"""
     score = 0
@@ -1017,43 +1135,6 @@ def create_character_groups_with_decimals(digit_and_dot_chars, preferred_font):
 
     return char_groups
 
-def should_group_characters_with_decimals(base_char, other_char, current_group, preferred_font):
-    """Xác định xem 2 ký tự có nên được nhóm lại không"""
-    try:
-        base_font = base_char.get('fontname', 'Unknown')
-        other_font = other_char.get('fontname', 'Unknown')
-
-        if not (base_font == preferred_font and other_font == preferred_font):
-            return False
-
-        distance = math.sqrt(
-            (base_char['x0'] - other_char['x0'])**2 +
-            (base_char['top'] - other_char['top'])**2
-        )
-
-        if distance > 30:
-            return False
-
-        if len(current_group) > 1:
-            group_x_span = max(c['x0'] for c in current_group) - min(c['x0'] for c in current_group)
-            group_y_span = max(c['top'] for c in current_group) - min(c['top'] for c in current_group)
-
-            is_group_vertical = group_y_span > group_x_span * 1.5
-
-            if is_group_vertical:
-                group_x_center = sum(c['x0'] for c in current_group) / len(current_group)
-                if abs(other_char['x0'] - group_x_center) > 10:
-                    return False
-            else:
-                group_y_center = sum(c['top'] for c in current_group) / len(current_group)
-                if abs(other_char['top'] - group_y_center) > 8:
-                    return False
-
-        return True
-
-    except Exception:
-        return False
-
 def process_character_group_with_decimals(group, extracted_numbers, preferred_font):
     """Xử lý nhóm ký tự bao gồm số thập phân"""
     try:
@@ -1220,43 +1301,6 @@ def create_character_groups_for_all_numbers_with_decimals(digit_and_dot_chars):
             char_groups.append(current_group)
 
     return char_groups
-
-def should_group_characters_for_all_numbers_with_decimals(base_char, other_char, current_group):
-    """Xác định xem 2 ký tự có nên được nhóm lại không"""
-    try:
-        distance = math.sqrt(
-            (base_char['x0'] - other_char['x0'])**2 +
-            (base_char['top'] - other_char['top'])**2
-        )
-
-        if distance > 30:
-            return False
-
-        base_font = base_char.get('fontname', 'Unknown')
-        other_font = other_char.get('fontname', 'Unknown')
-        if base_font != other_font:
-            if distance > 20:
-                return False
-
-        if len(current_group) > 1:
-            group_x_span = max(c['x0'] for c in current_group) - min(c['x0'] for c in current_group)
-            group_y_span = max(c['top'] for c in current_group) - min(c['top'] for c in current_group)
-
-            is_group_vertical = group_y_span > group_x_span * 1.5
-
-            if is_group_vertical:
-                group_x_center = sum(c['x0'] for c in current_group) / len(current_group)
-                if abs(other_char['x0'] - group_x_center) > 10:
-                    return False
-            else:
-                group_y_center = sum(c['top'] for c in current_group) / len(current_group)
-                if abs(other_char['top'] - group_y_center) > 8:
-                    return False
-
-        return True
-
-    except Exception:
-        return False
 
 def process_character_group_for_all_numbers_with_decimals(group):
     """Xử lý nhóm ký tự cho TẤT CẢ số bao gồm số thập phân"""
@@ -1586,8 +1630,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
