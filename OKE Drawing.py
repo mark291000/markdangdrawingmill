@@ -654,7 +654,6 @@ def expand_small_groups(df):
             target_char_width = group_char_widths[0]
             group_char_heights = group_data['Char_Height'].tolist()
             group_font_names = group_data['Font Name'].unique()
-            group_orientations = set(group_data['Orientation'].tolist())
 
             candidate_data = df[df['Group'] != group_name]
 
@@ -672,17 +671,7 @@ def expand_small_groups(df):
                 condition_3 = any(abs(candidate_char_height - gh) <= 0.2 for gh in group_char_heights)
                 condition_4 = (candidate_font_name in group_font_names)
 
-                condition_5 = True
-                if candidate_orientation == 'Single':
-                    condition_5 = True
-                elif candidate_orientation in ['Horizontal', 'Vertical']:
-                    new_orientations = group_orientations | {candidate_orientation}
-                    if len(new_orientations) > len(group_orientations):
-                        condition_5 = True
-                    else:
-                        condition_5 = False
-
-                if condition_1 and condition_2 and condition_3 and condition_4 and condition_5:
+                if condition_1 and condition_2 and condition_3 and condition_4:
                     candidates.append({
                         'index': idx,
                         'number': row['Valid Number'],
@@ -737,7 +726,7 @@ def check_uniform_metrics_for_has_hv_mix(group_data):
         return False
 
 def group_numbers_by_font_characteristics(df):
-    """Phân nhóm số theo đặc tính font"""
+    """⭐ PHIÊN BẢN MỚI: Phân nhóm số CHỈ theo Font Name, Font_Size, Char_Width, Char_Height - BỎ Orientation"""
     try:
         if len(df) < 1:
             df['Group'] = 'INSUFFICIENT_DATA'
@@ -755,7 +744,6 @@ def group_numbers_by_font_characteristics(df):
             current_font_size = row['Font_Size']
             current_char_width = row['Char_Width']
             current_char_height = row['Char_Height']
-            current_orientation = row['Orientation']
             current_font_name = row['Font Name']
 
             group_indices = [i]
@@ -767,50 +755,23 @@ def group_numbers_by_font_characteristics(df):
                 other_font_size = other_row['Font_Size']
                 other_char_width = other_row['Char_Width']
                 other_char_height = other_row['Char_Height']
-                other_orientation = other_row['Orientation']
                 other_font_name = other_row['Font Name']
 
                 is_same_group = False
 
-                # ĐIỀU KIỆN 1: Hoàn toàn giống nhau
+                # ĐIỀU KIỆN 1: Hoàn toàn giống nhau (BỎ orientation)
                 if (current_font_size == other_font_size and
                     current_char_width == other_char_width and
                     current_char_height == other_char_height and
-                    current_orientation == other_orientation and
                     current_font_name == other_font_name):
                     is_same_group = True
 
-                # ĐIỀU KIỆN 2: Chênh lệch Char_Height ≤ 0.2 + cùng các đặc tính khác
+                # ĐIỀU KIỆN 2: Chênh lệch Char_Height ≤ 0.2 + cùng các đặc tính khác (BỎ orientation)
                 elif (current_font_name == other_font_name and
                       current_char_width == other_char_width and
-                      current_orientation == other_orientation and
                       current_font_size == other_font_size and
                       abs(current_char_height - other_char_height) <= 0.2):
                     is_same_group = True
-
-                # ĐIỀU KIỆN 3: Single orientation với H/V có cùng đặc tính font
-                elif (current_font_name == other_font_name and
-                      current_char_width == other_char_width and
-                      current_font_size == other_font_size and
-                      abs(current_char_height - other_char_height) <= 0.2):
-
-                    orientations = {current_orientation, other_orientation}
-                    if 'Single' in orientations and ('Horizontal' in orientations or 'Vertical' in orientations):
-                        is_same_group = True
-
-                # ĐIỀU KIỆN 4: Trường hợp đặc biệt Horizontal/Vertical mix
-                elif (current_font_name == other_font_name and
-                      current_char_width == other_char_width and
-                      abs(current_char_height - other_char_height) <= 0.2):
-
-                    if ((current_orientation == 'Horizontal' and other_orientation == 'Vertical') or
-                        (current_orientation == 'Vertical' and other_orientation == 'Horizontal')):
-
-                        horizontal_row = row if current_orientation == 'Horizontal' else other_row
-                        vertical_row = other_row if current_orientation == 'Horizontal' else row
-
-                        if vertical_row['Font_Size'] == vertical_row['Char_Width']:
-                            is_same_group = True
 
                 if is_same_group:
                     group_indices.append(j)
@@ -821,32 +782,44 @@ def group_numbers_by_font_characteristics(df):
                     df.loc[idx, 'Group'] = group_name
 
                 if len(group_indices) > 1:
-                    numbers_in_group = [df.loc[idx, 'Valid Number'] for idx in group_indices]
                     orientations_in_group = [df.loc[idx, 'Orientation'] for idx in group_indices]
 
                     group_data = df[df['Group'] == group_name]
                     is_uniform = check_uniform_metrics_for_has_hv_mix(group_data)
 
                     if is_uniform:
-                        for idx in group_indices:
-                            df.loc[idx, 'Has_HV_Mix'] = False
-                    else:
+                        # Kiểm tra xem có mix Orientation không
                         unique_orientations = set(orientations_in_group)
                         if len(unique_orientations) > 1 and ('Horizontal' in unique_orientations or 'Vertical' in unique_orientations or 'Single' in unique_orientations):
                             for idx in group_indices:
                                 df.loc[idx, 'Has_HV_Mix'] = True
+                        else:
+                            for idx in group_indices:
+                                df.loc[idx, 'Has_HV_Mix'] = False
+                    else:
+                        # Nếu không uniform thì vẫn đánh dấu Has_HV_Mix
+                        for idx in group_indices:
+                            df.loc[idx, 'Has_HV_Mix'] = True
 
                 group_counter += 1
 
         df = expand_small_groups(df)
 
+        # Cập nhật lại Has_HV_Mix sau khi expand
         for group_name in df['Group'].unique():
             if group_name not in ['UNGROUPED', 'INSUFFICIENT_DATA', 'ERROR']:
                 group_data = df[df['Group'] == group_name]
                 if len(group_data) > 1:
                     is_uniform = check_uniform_metrics_for_has_hv_mix(group_data)
-                    if is_uniform:
+                    orientations_in_group = group_data['Orientation'].tolist()
+                    unique_orientations = set(orientations_in_group)
+                    
+                    if is_uniform and len(unique_orientations) > 1:
+                        df.loc[df['Group'] == group_name, 'Has_HV_Mix'] = True
+                    elif is_uniform and len(unique_orientations) == 1:
                         df.loc[df['Group'] == group_name, 'Has_HV_Mix'] = False
+                    else:
+                        df.loc[df['Group'] == group_name, 'Has_HV_Mix'] = True
 
         return df
 
@@ -1535,7 +1508,7 @@ def main():
                     if file_secondary_results:
                         df_file_secondary = pd.DataFrame(file_secondary_results)
 
-                        # Phân nhóm và tính score
+                        # Phân nhóm và tính score (SỬ DỤNG FUNCTION MỚI)
                         df_file_secondary = group_numbers_by_font_characteristics(df_file_secondary)
 
                         # Tính SCORE cho từng GROUP
