@@ -199,16 +199,16 @@ def check_grain_exists_in_page(page):
         return False
 
 def extract_laminate_classification_with_detail(page):
-    """Trích xuất thông tin Laminate classification với logic ưu tiên"""
+    """Trích xuất thông tin Laminate classification với logic ưu tiên tuần tự"""
     try:
         # Danh sách keyword theo thứ tự ưu tiên (index càng nhỏ càng ưu tiên)
         keywords = [
-            "FLEX PAPER/PAPER",                      # Ưu tiên 0 (cao nhất)
+            "FLEX PAPER/PAPER",                      # Ưu tiên 0
             "GLUEABLE LAM",                          # Ưu tiên 1
             "GLUEABLE LAM/TC BLACK (IF APPLICABLE)", # Ưu tiên 2
             "LAM/MASKING (IF APPLICABLE)",           # Ưu tiên 3
             "RAW",                                   # Ưu tiên 4
-            "LAM"                                    # Ưu tiên 5 (thấp nhất)
+            "LAM"                                    # Ưu tiên 5
         ]
 
         def find_highest_priority_keyword(line, keywords):
@@ -218,10 +218,9 @@ def extract_laminate_classification_with_detail(page):
                 if kw in line:
                     found_keywords.append((priority, kw))
             
-            # Trả về keyword có độ ưu tiên cao nhất (index nhỏ nhất)
             if found_keywords:
-                found_keywords.sort(key=lambda x: x[0])  # Sắp xếp theo độ ưu tiên
-                return found_keywords[0][1]  # Trả về keyword
+                found_keywords.sort(key=lambda x: x[0])
+                return found_keywords[0][1]
             return None
 
         lines = []
@@ -232,9 +231,9 @@ def extract_laminate_classification_with_detail(page):
         else:
             return "", ""
 
+        # Thu thập tất cả keyword tìm được
         all_found = []
         for idx, (line_num, line) in enumerate(lines):
-            # Tìm keyword có độ ưu tiên cao nhất trong dòng
             priority_keyword = find_highest_priority_keyword(line, keywords)
             
             if priority_keyword:
@@ -247,21 +246,42 @@ def extract_laminate_classification_with_detail(page):
                     "Text": line
                 })
 
-        # Sắp xếp các keyword tìm được theo độ ưu tiên (priority thấp hơn = ưu tiên cao hơn)
+        if not all_found:
+            return "", ""
+
+        # Sắp xếp theo độ ưu tiên và thứ tự xuất hiện
         all_found.sort(key=lambda x: (x["Priority"], x["Index"]))
 
-        # Lấy 2 keyword có độ ưu tiên cao nhất
-        if len(all_found) >= 2:
-            first_kw = all_found[0]["Keyword"]
-            second_kw = all_found[1]["Keyword"]
+        # ⭐ LOGIC MỚI: Tìm theo thứ tự ưu tiên tuần tự
+        first_keyword = all_found[0]  # Keyword có độ ưu tiên cao nhất
+        first_priority = first_keyword["Priority"]
+        
+        # Tìm keyword thứ 2 có độ ưu tiên thấp hơn (priority cao hơn)
+        second_keyword = None
+        for item in all_found:
+            if item["Priority"] > first_priority:  # Tìm keyword có độ ưu tiên thấp hơn
+                second_keyword = item
+                break
+        
+        # Nếu không tìm thấy keyword có độ ưu tiên thấp hơn
+        if second_keyword is None:
+            # Tự join với chính nó
+            second_keyword = first_keyword
+
+        # Tạo kết quả
+        first_kw = first_keyword["Keyword"]
+        second_kw = second_keyword["Keyword"]
+        
+        if first_keyword == second_keyword:
+            # Trường hợp tự join với chính nó
             result = f"{first_kw}/{second_kw}"
-            detail = f"Found: {first_kw} (priority {all_found[0]['Priority']+1}, line {all_found[0]['Line']}), {second_kw} (priority {all_found[1]['Priority']+1}, line {all_found[1]['Line']})"
-            return result, detail
-        elif len(all_found) == 1:
-            # Nếu chỉ có 1 keyword thì trả về rỗng theo logic gốc
-            return "", ""
+            detail = f"Found: {first_kw} (priority {first_keyword['Priority']+1}, line {first_keyword['Line']}) - Self joined"
         else:
-            return "", ""
+            # Trường hợp có 2 keyword khác nhau
+            result = f"{first_kw}/{second_kw}"
+            detail = f"Found: {first_kw} (priority {first_keyword['Priority']+1}, line {first_keyword['Line']}), {second_kw} (priority {second_keyword['Priority']+1}, line {second_keyword['Line']})"
+        
+        return result, detail
 
     except Exception as e:
         return "", ""
@@ -1566,6 +1586,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
