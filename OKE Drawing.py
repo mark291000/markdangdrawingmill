@@ -33,6 +33,68 @@ def get_font_weight(char):
     except Exception:
         return 'Unknown'
 
+def find_dwg_positions(page):
+    """Tìm tất cả vị trí chữ 'Dwg#' trong trang"""
+    try:
+        dwg_positions = []
+        chars = page.chars
+        
+        if not chars:
+            return dwg_positions
+        
+        # Tìm chuỗi "Dwg#" hoặc "DWG#"
+        text_chars = [c for c in chars if c.get('text', '').strip()]
+        
+        for i in range(len(text_chars) - 3):
+            # Kiểm tra chuỗi 4 ký tự liên tiếp
+            four_chars = ''.join([c.get('text', '') for c in text_chars[i:i+4]])
+            
+            if four_chars.upper() == 'DWG#':
+                # Lấy vị trí của ký tự '#' (ký tự cuối cùng)
+                last_char = text_chars[i+3]
+                dwg_x = last_char.get('x1', last_char.get('x0', 0))  # Vị trí cuối của '#'
+                dwg_y = last_char.get('top', 0)
+                
+                dwg_positions.append({
+                    'x': dwg_x,
+                    'y': dwg_y,
+                    'chars': text_chars[i:i+4]
+                })
+        
+        return dwg_positions
+        
+    except Exception as e:
+        return []
+
+def is_number_near_dwg(number_x, number_y, dwg_positions, max_distance=150):
+    """Kiểm tra xem số có nằm gần chữ Dwg# không"""
+    try:
+        if not dwg_positions:
+            return False
+        
+        for dwg_pos in dwg_positions:
+            dwg_x = dwg_pos['x']
+            dwg_y = dwg_pos['y']
+            
+            # Tính khoảng cách
+            distance = math.sqrt((number_x - dwg_x)**2 + (number_y - dwg_y)**2)
+            
+            # Kiểm tra khoảng cách tổng thể
+            if distance <= max_distance:
+                # Kiểm tra thêm điều kiện nằm ngang (cùng dòng)
+                y_diff = abs(number_y - dwg_y)
+                if y_diff <= 10:  # Cùng dòng (tolerance 10 points)
+                    return True
+                
+                # Kiểm tra số có nằm sau (bên phải) Dwg# không
+                if number_x > dwg_x and y_diff <= 20:  # Cho phép sai lệch y nhỏ
+                    return True
+        
+        return False
+        
+    except Exception:
+        return False
+
 def calculate_advanced_metrics_with_rotation(group, number, x_pos, y_pos, orientation):
     """Tính toán 8 chỉ số khác biệt - XOAY SỐ TRƯỚC KHI TÍNH Font_Size, Char_Width, Char_Height - CHỈ TÍNH SỐ"""
     try:
@@ -1005,12 +1067,15 @@ def determine_preferred_font_with_frequency_3(all_fonts, digit_chars):
             return None
 
 def extract_numbers_and_decimals_from_chars(page):
-    """Trích xuất số và số thập phân"""
+    """⭐ Trích xuất số và số thập phân - ĐÃ THÊM FILTER DWG#"""
     numbers = []
     orientations = {}
     font_info = {}
 
     try:
+        # ⭐ TÌM VỊ TRÍ DWG# TRƯỚC
+        dwg_positions = find_dwg_positions(page)
+        
         chars = page.chars
         digit_and_dot_chars = [c for c in chars if c['text'].isdigit() or c['text'] == '.']
 
@@ -1032,6 +1097,13 @@ def extract_numbers_and_decimals_from_chars(page):
                     num_value = int(group[0]['text'])
                     fontname = group[0].get('fontname', 'Unknown')
                     font_weight = get_font_weight(group[0])
+                    
+                    # ⭐ KIỂM TRA LOẠI BỎ SỐ GẦN DWG#
+                    number_x = group[0]['x0']
+                    number_y = group[0]['top']
+                    
+                    if is_number_near_dwg(number_x, number_y, dwg_positions):
+                        continue  # Bỏ qua số này
 
                     if (1 <= num_value <= 3500 and fontname == preferred_font):
                         numbers.append(num_value)
@@ -1049,6 +1121,13 @@ def extract_numbers_and_decimals_from_chars(page):
                 result = process_character_group_with_decimals(group, extracted_numbers, preferred_font)
                 if result:
                     number, orientation, is_decimal = result
+                    
+                    # ⭐ KIỂM TRA LOẠI BỎ SỐ GẦN DWG#
+                    avg_x = sum(c['x0'] for c in group) / len(group)
+                    avg_y = sum(c['top'] for c in group) / len(group)
+                    
+                    if is_number_near_dwg(avg_x, avg_y, dwg_positions):
+                        continue  # Bỏ qua số này
 
                     if is_decimal:
                         numbers.append(number)
@@ -1165,10 +1244,13 @@ def process_character_group_with_decimals(group, extracted_numbers, preferred_fo
         return None
 
 def extract_all_valid_numbers_from_page(page):
-    """Trích xuất TẤT CẢ số hợp lệ"""
+    """⭐ Trích xuất TẤT CẢ số hợp lệ - ĐÃ THÊM FILTER DWG#"""
     all_valid_numbers = []
 
     try:
+        # ⭐ TÌM VỊ TRÍ DWG# TRƯỚC
+        dwg_positions = find_dwg_positions(page)
+        
         chars = page.chars
         digit_and_dot_chars = [c for c in chars if c['text'].isdigit() or c['text'] == '.']
 
@@ -1185,6 +1267,10 @@ def extract_all_valid_numbers_from_page(page):
                     font_weight = get_font_weight(group[0])
                     x_pos = group[0]['x0']
                     y_pos = group[0]['top']
+                    
+                    # ⭐ KIỂM TRA LOẠI BỎ SỐ GẦN DWG#
+                    if is_number_near_dwg(x_pos, y_pos, dwg_positions):
+                        continue  # Bỏ qua số này
 
                     if 0 < num_value <= 3500:
                         metrics = calculate_advanced_metrics_with_rotation(group, num_value, x_pos, y_pos, 'Single')
@@ -1213,15 +1299,20 @@ def extract_all_valid_numbers_from_page(page):
                 if result:
                     number, orientation, is_decimal = result
                     if (is_decimal and 0.1 <= number <= 3500.0) or (not is_decimal and 0 < number <= 3500):
+                        
+                        # ⭐ KIỂM TRA LOẠI BỎ SỐ GẦN DWG#
+                        avg_x = sum(c['x0'] for c in group) / len(group)
+                        avg_y = sum(c['top'] for c in group) / len(group)
+                        
+                        if is_number_near_dwg(avg_x, avg_y, dwg_positions):
+                            continue  # Bỏ qua số này
+                        
                         fonts = [ch.get("fontname", "Unknown") for ch in group]
                         fontname = Counter(fonts).most_common(1)[0][0] if fonts else "Unknown"
 
                         weights = [get_font_weight(ch) for ch in group]
                         weight_counter = Counter(weights)
                         common_weight = weight_counter.most_common(1)[0][0] if weights else "Unknown"
-
-                        avg_x = sum(c['x0'] for c in group) / len(group)
-                        avg_y = sum(c['top'] for c in group) / len(group)
 
                         metrics = calculate_advanced_metrics_with_rotation(group, number, avg_x, avg_y, orientation)
 
@@ -1452,10 +1543,10 @@ def main():
                     # Trích xuất thông tin LAMINATE classification
                     laminate_classification, laminate_detail = extract_laminate_classification_with_detail(page)
 
-                    # Sử dụng phương pháp trích xuất mới (CHO BẢNG CHÍNH)
+                    # Sử dụng phương pháp trích xuất mới (CHO BẢNG CHÍNH) - CÓ FILTER DWG#
                     char_numbers, char_orientations, font_info = extract_numbers_and_decimals_from_chars(page)
 
-                    # Trích xuất TẤT CẢ số hợp lệ (CHO BẢNG PHỤ)
+                    # Trích xuất TẤT CẢ số hợp lệ (CHO BẢNG PHỤ) - CÓ FILTER DWG#
                     all_valid_numbers = extract_all_valid_numbers_from_page(page)
 
                     # Xử lý kết quả cho BẢNG CHÍNH
