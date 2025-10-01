@@ -204,6 +204,7 @@ def extract_laminate_classification_with_detail(page):
         keywords = [
             "FLEX PAPER/PAPER",
             "GLUEABLE LAM",
+            "GLUEABLE",
             "GLUEABLE LAM/TC BLACK (IF APPLICABLE)",
             "LAM/MASKING (IF APPLICABLE)",
             "RAW",
@@ -1543,3 +1544,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
