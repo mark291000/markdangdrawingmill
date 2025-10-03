@@ -765,7 +765,9 @@ def extract_profile_from_page(page):
         return ""
 
 def create_dimension_summary_with_score_priority(df, df_all_numbers):
-    """Tạo bảng tóm tắt với logic mới"""
+    """
+    *** CẬP NHẬT: Tạo bảng tóm tắt với logic xử lý 2 số lớn nhất bằng nhau ***
+    """
     if len(df) == 0:
         return pd.DataFrame(columns=["Drawing#", "Length (mm)", "Width (mm)", "Height (mm)", "Laminate", "FOIL", "EDGEBAND", "Profile"])
 
@@ -782,33 +784,114 @@ def create_dimension_summary_with_score_priority(df, df_all_numbers):
                 high_score_group_data = df_all_numbers[df_all_numbers['Group'] == highest_score_group]
                 high_score_numbers = high_score_group_data['Valid Number'].tolist()
                 unique_numbers = sorted(list(set(high_score_numbers)), reverse=True)
+                
+                # Lưu toàn bộ số có sẵn để tìm số thứ 3 nếu cần
+                all_available_numbers = df_all_numbers['Valid Number'].tolist()
+                all_unique_numbers = sorted(list(set(all_available_numbers)), reverse=True)
             else:
-                all_numbers = df['Number_Int'].tolist()
+                all_numbers = df['Number_Int'].tolist() if 'Number_Int' in df.columns else []
                 unique_numbers = sorted(list(set(all_numbers)), reverse=True)
+                all_unique_numbers = unique_numbers
         else:
-            all_numbers = df['Number_Int'].tolist()
+            all_numbers = df['Number_Int'].tolist() if 'Number_Int' in df.columns else []
             unique_numbers = sorted(list(set(all_numbers)), reverse=True)
+            all_unique_numbers = unique_numbers
     else:
-        all_numbers = df['Number_Int'].tolist()
+        all_numbers = df['Number_Int'].tolist() if 'Number_Int' in df.columns else []
         unique_numbers = sorted(list(set(all_numbers)), reverse=True)
+        all_unique_numbers = unique_numbers
 
-    # LOGIC DIMENSION TIÊU CHUẨN
+    # *** LOGIC DIMENSION MỚI - XỬ LÝ TRƯỜNG HỢP 2 SỐ LỚN NHẤT BẰNG NHAU ***
     length_number = ""
     width_number = ""
     height_number = ""
 
-    if len(unique_numbers) == 1:
+    if len(unique_numbers) == 0:
+        # Không có số nào
+        length_number = "0"
+        width_number = "0"
+        height_number = "0"
+        
+    elif len(unique_numbers) == 1:
+        # Chỉ có 1 số unique
         length_number = str(unique_numbers[0])
         width_number = str(unique_numbers[0])
         height_number = str(unique_numbers[0])
+
     elif len(unique_numbers) == 2:
-        length_number = str(unique_numbers[0])
-        width_number = str(unique_numbers[1])
-        height_number = str(unique_numbers[1])
+        # *** KIỂM TRA 2 SỐ CÓ BẰNG NHAU KHÔNG ***
+        if unique_numbers[0] == unique_numbers[1]:
+            # 2 số bằng nhau (không thể xảy ra do unique, nhưng check để an toàn)
+            # Tìm số thứ 3 từ tất cả số có sẵn
+            third_number = None
+            for num in all_unique_numbers:
+                if num != unique_numbers[0]:
+                    third_number = num
+                    break
+            
+            if third_number is not None:
+                length_number = str(unique_numbers[0])
+                width_number = str(unique_numbers[0])
+                height_number = str(third_number)
+            else:
+                # Không tìm thấy số thứ 3
+                length_number = str(unique_numbers[0])
+                width_number = str(unique_numbers[1])
+                height_number = str(unique_numbers[1])
+        else:
+            # 2 số khác nhau - logic cũ
+            length_number = str(unique_numbers[0])
+            width_number = str(unique_numbers[1])
+            height_number = str(unique_numbers[1])
+
     elif len(unique_numbers) >= 3:
-        length_number = str(unique_numbers[0])
-        width_number = str(unique_numbers[-2])
-        height_number = str(unique_numbers[-1])
+        # *** KIỂM TRA 2 SỐ LỚN NHẤT CÓ BẰNG NHAU KHÔNG ***
+        if len(unique_numbers) >= 2 and unique_numbers[0] == unique_numbers[1]:
+            # 2 số lớn nhất bằng nhau (không thể xảy ra do unique)
+            length_number = str(unique_numbers[0])
+            width_number = str(unique_numbers[0])
+            height_number = str(unique_numbers[2]) if len(unique_numbers) > 2 else str(unique_numbers[1])
+        else:
+            # *** KIỂM TRA TRONG NHÓM CÓ 2 SỐ BẰNG NHAU Ở VỊ TRÍ ĐẦU KHÔNG ***
+            # Đếm frequency của từng số trong group được chọn
+            if 'high_score_numbers' in locals():
+                number_counts = Counter(high_score_numbers)
+                # Tìm số xuất hiện nhiều nhất
+                most_common_numbers = [num for num, count in number_counts.items() if count >= 2]
+                
+                if most_common_numbers:
+                    # Có số xuất hiện >= 2 lần
+                    dominant_number = max(most_common_numbers)  # Chọn số lớn nhất trong các số trùng
+                    
+                    # Tìm số khác để làm height
+                    height_candidates = [num for num in all_unique_numbers if num != dominant_number]
+                    if height_candidates:
+                        height_number = str(min(height_candidates))  # Chọn số nhỏ nhất làm height
+                        length_number = str(dominant_number)
+                        width_number = str(dominant_number)
+                    else:
+                        # Fallback về logic cũ
+                        length_number = str(unique_numbers[0])
+                        width_number = str(unique_numbers[-2])
+                        height_number = str(unique_numbers[-1])
+                else:
+                    # Không có số nào trùng - logic cũ
+                    length_number = str(unique_numbers[0])
+                    width_number = str(unique_numbers[-2])
+                    height_number = str(unique_numbers[-1])
+            else:
+                # Fallback về logic cũ
+                length_number = str(unique_numbers[0])
+                width_number = str(unique_numbers[-2]) if len(unique_numbers) > 1 else str(unique_numbers[0])
+                height_number = str(unique_numbers[-1])
+
+    # Đảm bảo không có giá trị trống
+    if not length_number:
+        length_number = "0"
+    if not width_number:
+        width_number = "0"
+    if not height_number:
+        height_number = "0"
 
     # Lấy filename
     filename = df.iloc[0]['File']
@@ -853,7 +936,20 @@ def process_pdf_file(uploaded_file):
             all_valid_numbers = extract_all_valid_numbers_from_page(page)
             
             if not all_valid_numbers:
-                return pd.DataFrame()
+                # Không có số hợp lệ - trả về với dimensions = 0
+                filename = uploaded_file.name
+                drawing_name = filename.replace('.pdf', '') if filename.endswith('.pdf') else filename
+                
+                return pd.DataFrame({
+                    "Drawing#": [drawing_name],
+                    "Length (mm)": ["0"],
+                    "Width (mm)": ["0"],
+                    "Height (mm)": ["0"],
+                    "Laminate": [laminate_classification],
+                    "FOIL": [foil_classification],
+                    "EDGEBAND": [edgeband_classification],
+                    "Profile": [profile_info]
+                })
 
             # Tạo DataFrame cho bảng phụ
             file_secondary_results = []
@@ -879,7 +975,20 @@ def process_pdf_file(uploaded_file):
                 })
 
             if not file_secondary_results:
-                return pd.DataFrame()
+                # Không có kết quả phụ - trả về với dimensions = 0
+                filename = uploaded_file.name
+                drawing_name = filename.replace('.pdf', '') if filename.endswith('.pdf') else filename
+                
+                return pd.DataFrame({
+                    "Drawing#": [drawing_name],
+                    "Length (mm)": ["0"],
+                    "Width (mm)": ["0"],
+                    "Height (mm)": ["0"],
+                    "Laminate": [laminate_classification],
+                    "FOIL": [foil_classification],
+                    "EDGEBAND": [edgeband_classification],
+                    "Profile": [profile_info]
+                })
 
             df_file_secondary = pd.DataFrame(file_secondary_results)
             
@@ -894,10 +1003,11 @@ def process_pdf_file(uploaded_file):
                     score = calculate_score_for_group(group_data)
                     df_file_secondary.loc[df_file_secondary['Group'] == group_name, 'SCORE'] = score
 
-            # Tạo bảng chính dummy
+            # Tạo bảng chính dummy với thông tin số
+            numbers_for_main = [info['number'] for info in all_valid_numbers]
             df_main_dummy = pd.DataFrame([{
                 "File": uploaded_file.name,
-                "Number_Int": 0,
+                "Number_Int": max(numbers_for_main) if numbers_for_main else 0,
                 "Profile": profile_info,
                 "FOIL": foil_classification,
                 "EDGEBAND": edgeband_classification,
