@@ -772,7 +772,13 @@ def create_dimension_summary_with_score_priority(df, df_all_numbers):
         return pd.DataFrame(columns=["Drawing#", "Length (mm)", "Width (mm)", "Height (mm)", "Laminate", "FOIL", "EDGEBAND", "Profile"])
 
     # TÌM NHÓM CÓ SCORE CAO NHẤT VÀ ÍT NHẤT 3 THÀNH VIÊN
+    group_numbers = []
+    all_available_numbers = []
+    
     if 'SCORE' in df_all_numbers.columns and len(df_all_numbers) > 0:
+        # Lấy tất cả số có sẵn trước
+        all_available_numbers = df_all_numbers['Valid Number'].tolist()
+        
         group_sizes = df_all_numbers.groupby('Group').size()
         valid_groups = group_sizes[group_sizes >= 3].index.tolist()
         
@@ -782,108 +788,89 @@ def create_dimension_summary_with_score_priority(df, df_all_numbers):
             if len(group_scores) > 0:
                 highest_score_group = group_scores.index[0]
                 high_score_group_data = df_all_numbers[df_all_numbers['Group'] == highest_score_group]
-                high_score_numbers = high_score_group_data['Valid Number'].tolist()
-                unique_numbers = sorted(list(set(high_score_numbers)), reverse=True)
-                
-                # Lưu toàn bộ số có sẵn để tìm số thứ 3 nếu cần
-                all_available_numbers = df_all_numbers['Valid Number'].tolist()
-                all_unique_numbers = sorted(list(set(all_available_numbers)), reverse=True)
+                group_numbers = high_score_group_data['Valid Number'].tolist()  # Giữ nguyên duplicates
             else:
-                all_numbers = df['Number_Int'].tolist() if 'Number_Int' in df.columns else []
-                unique_numbers = sorted(list(set(all_numbers)), reverse=True)
-                all_unique_numbers = unique_numbers
+                # Fallback: sử dụng tất cả số
+                group_numbers = all_available_numbers
         else:
-            all_numbers = df['Number_Int'].tolist() if 'Number_Int' in df.columns else []
-            unique_numbers = sorted(list(set(all_numbers)), reverse=True)
-            all_unique_numbers = unique_numbers
+            # Fallback: sử dụng tất cả số
+            group_numbers = all_available_numbers
     else:
+        # Fallback: từ bảng chính
         all_numbers = df['Number_Int'].tolist() if 'Number_Int' in df.columns else []
-        unique_numbers = sorted(list(set(all_numbers)), reverse=True)
-        all_unique_numbers = unique_numbers
+        group_numbers = all_numbers
+        all_available_numbers = all_numbers
 
-    # *** LOGIC DIMENSION MỚI - XỬ LÝ TRƯỜNG HỢP 2 SỐ LỚN NHẤT BẰNG NHAU ***
+    # *** LOGIC DIMENSION MỚI ***
     length_number = ""
     width_number = ""
     height_number = ""
 
-    if len(unique_numbers) == 0:
+    if len(group_numbers) == 0:
         # Không có số nào
         length_number = "0"
         width_number = "0"
         height_number = "0"
         
-    elif len(unique_numbers) == 1:
-        # Chỉ có 1 số unique
-        length_number = str(unique_numbers[0])
-        width_number = str(unique_numbers[0])
-        height_number = str(unique_numbers[0])
-
-    elif len(unique_numbers) == 2:
-        # *** KIỂM TRA 2 SỐ CÓ BẰNG NHAU KHÔNG ***
-        if unique_numbers[0] == unique_numbers[1]:
-            # 2 số bằng nhau (không thể xảy ra do unique, nhưng check để an toàn)
-            # Tìm số thứ 3 từ tất cả số có sẵn
-            third_number = None
-            for num in all_unique_numbers:
-                if num != unique_numbers[0]:
-                    third_number = num
-                    break
+    else:
+        # Đếm frequency của từng số trong group
+        number_counts = Counter(group_numbers)
+        unique_numbers_in_group = sorted(list(set(group_numbers)), reverse=True)
+        all_unique_numbers = sorted(list(set(all_available_numbers)), reverse=True)
+        
+        # Tìm số xuất hiện nhiều nhất (≥ 2 lần)
+        most_frequent_numbers = [num for num, count in number_counts.items() if count >= 2]
+        
+        if most_frequent_numbers:
+            # *** CASE: CÓ SỐ XUẤT HIỆN ≥ 2 LẦN ***
+            dominant_number = max(most_frequent_numbers)  # Chọn số lớn nhất trong các số trùng
             
-            if third_number is not None:
-                length_number = str(unique_numbers[0])
-                width_number = str(unique_numbers[0])
-                height_number = str(third_number)
+            # Length và Width = số xuất hiện nhiều lần
+            length_number = str(dominant_number)
+            width_number = str(dominant_number)
+            
+            # Height = số khác nhỏ nhất từ tất cả số có sẵn
+            height_candidates = [num for num in all_unique_numbers if num != dominant_number]
+            if height_candidates:
+                height_number = str(min(height_candidates))
             else:
-                # Không tìm thấy số thứ 3
-                length_number = str(unique_numbers[0])
-                width_number = str(unique_numbers[1])
-                height_number = str(unique_numbers[1])
-        else:
-            # 2 số khác nhau - logic cũ
-            length_number = str(unique_numbers[0])
-            width_number = str(unique_numbers[1])
-            height_number = str(unique_numbers[1])
-
-    elif len(unique_numbers) >= 3:
-        # *** KIỂM TRA 2 SỐ LỚN NHẤT CÓ BẰNG NHAU KHÔNG ***
-        if len(unique_numbers) >= 2 and unique_numbers[0] == unique_numbers[1]:
-            # 2 số lớn nhất bằng nhau (không thể xảy ra do unique)
-            length_number = str(unique_numbers[0])
-            width_number = str(unique_numbers[0])
-            height_number = str(unique_numbers[2]) if len(unique_numbers) > 2 else str(unique_numbers[1])
-        else:
-            # *** KIỂM TRA TRONG NHÓM CÓ 2 SỐ BẰNG NHAU Ở VỊ TRÍ ĐẦU KHÔNG ***
-            # Đếm frequency của từng số trong group được chọn
-            if 'high_score_numbers' in locals():
-                number_counts = Counter(high_score_numbers)
-                # Tìm số xuất hiện nhiều nhất
-                most_common_numbers = [num for num, count in number_counts.items() if count >= 2]
+                # Không có số khác → Height = dominant number
+                height_number = str(dominant_number)
                 
-                if most_common_numbers:
-                    # Có số xuất hiện >= 2 lần
-                    dominant_number = max(most_common_numbers)  # Chọn số lớn nhất trong các số trùng
-                    
-                    # Tìm số khác để làm height
-                    height_candidates = [num for num in all_unique_numbers if num != dominant_number]
-                    if height_candidates:
-                        height_number = str(min(height_candidates))  # Chọn số nhỏ nhất làm height
-                        length_number = str(dominant_number)
-                        width_number = str(dominant_number)
-                    else:
-                        # Fallback về logic cũ
-                        length_number = str(unique_numbers[0])
-                        width_number = str(unique_numbers[-2])
-                        height_number = str(unique_numbers[-1])
-                else:
-                    # Không có số nào trùng - logic cũ
-                    length_number = str(unique_numbers[0])
-                    width_number = str(unique_numbers[-2])
-                    height_number = str(unique_numbers[-1])
+        elif len(unique_numbers_in_group) == 1:
+            # *** CASE: CHỈ CÓ 1 SỐ UNIQUE TRONG GROUP ***
+            single_number = unique_numbers_in_group[0]
+            
+            # Tìm số khác từ tất cả số có sẵn
+            other_numbers = [num for num in all_unique_numbers if num != single_number]
+            
+            if len(other_numbers) >= 2:
+                # Có ít nhất 2 số khác
+                length_number = str(single_number)
+                width_number = str(single_number)
+                height_number = str(min(other_numbers))  # Số nhỏ nhất khác
+            elif len(other_numbers) == 1:
+                # Chỉ có 1 số khác
+                length_number = str(single_number)
+                width_number = str(single_number)
+                height_number = str(other_numbers[0])
             else:
-                # Fallback về logic cũ
-                length_number = str(unique_numbers[0])
-                width_number = str(unique_numbers[-2]) if len(unique_numbers) > 1 else str(unique_numbers[0])
-                height_number = str(unique_numbers[-1])
+                # Không có số khác
+                length_number = str(single_number)
+                width_number = str(single_number)
+                height_number = str(single_number)
+                
+        elif len(unique_numbers_in_group) == 2:
+            # *** CASE: CÓ 2 SỐ UNIQUE TRONG GROUP ***
+            length_number = str(unique_numbers_in_group[0])  # Số lớn nhất
+            width_number = str(unique_numbers_in_group[1])   # Số nhỏ hơn
+            height_number = str(unique_numbers_in_group[1])  # = Width
+            
+        elif len(unique_numbers_in_group) >= 3:
+            # *** CASE: CÓ 3+ SỐ UNIQUE TRONG GROUP ***
+            length_number = str(unique_numbers_in_group[0])    # Số lớn nhất
+            width_number = str(unique_numbers_in_group[-2])    # Số gần nhỏ nhất
+            height_number = str(unique_numbers_in_group[-1])   # Số nhỏ nhất
 
     # Đảm bảo không có giá trị trống
     if not length_number:
@@ -893,11 +880,10 @@ def create_dimension_summary_with_score_priority(df, df_all_numbers):
     if not height_number:
         height_number = "0"
 
-    # Lấy filename
+    # Lấy thông tin file và các classification
     filename = df.iloc[0]['File']
     drawing_name = filename.replace('.pdf', '') if filename.endswith('.pdf') else filename
 
-    # Lấy thông tin profile, FOIL, EDGEBAND, LAMINATE
     profile_info = df.iloc[0]['Profile'] if 'Profile' in df.columns else ""
     foil_info = df.iloc[0]['FOIL'] if 'FOIL' in df.columns else ""
     edgeband_info = df.iloc[0]['EDGEBAND'] if 'EDGEBAND' in df.columns else ""
