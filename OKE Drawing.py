@@ -57,7 +57,6 @@ def calculate_advanced_metrics_with_rotation(group, number, x_pos, y_pos, orient
 
         # *** THÊM KIỂM TRA LOẠI BỎ FONT_SIZE = 20.6 ***
         if metrics['font_size'] == 20.6:
-            st.write(f"  ❌ Loại bỏ số {number}: Font_Size = 20.6")
             return None
 
         # 2 & 3. Character Width và Height - CHỈ TÍNH CHO KÝ TỰ SỐ - XOAY NẾU LÀ SỐ DỌC
@@ -84,12 +83,10 @@ def calculate_advanced_metrics_with_rotation(group, number, x_pos, y_pos, orient
                 # SỐ DỌC: Đổi chỗ width và height để về orientation ngang
                 metrics['char_width'] = round(avg_height, 1)   # Width sau xoay = Height gốc
                 metrics['char_height'] = round(avg_width, 1)   # Height sau xoay = Width gốc
-                st.write(f"  Số dọc {number}: Xoay W={avg_width:.1f}→{avg_height:.1f}, H={avg_height:.1f}→{avg_width:.1f} (chỉ tính {len(digit_chars)} ký tự số)")
             else:
                 # SỐ NGANG: Giữ nguyên
                 metrics['char_width'] = round(avg_width, 1)
                 metrics['char_height'] = round(avg_height, 1)
-                st.write(f"  Số ngang {number}: W={avg_width:.1f}, H={avg_height:.1f} (chỉ tính {len(digit_chars)} ký tự số)")
         else:
             metrics['char_width'] = 0.0
             metrics['char_height'] = 0.0
@@ -173,7 +170,6 @@ def calculate_advanced_metrics_with_rotation(group, number, x_pos, y_pos, orient
         return metrics
 
     except Exception as e:
-        st.error(f"Error calculating metrics: {e}")
         return {
             'font_size': 0.0,
             'char_width': 0.0,
@@ -198,12 +194,8 @@ def calculate_score_for_group(group_data):
     group_size = len(group_data)
     if group_size == 3:
         score += 30
-        st.write(f"    +30đ (Group size: {group_size} nằm trong khoảng 3)")
     elif group_size == 5:
        score += 10
-       st.write(f"    +10đ (Group size: {group_size} nằm trong khoảng 5)")
-    else:
-        st.write(f"    +0đ (Group size: {group_size} không nằm trong khoảng 3-5)")
 
     # Tiêu chí 2: Char_Spacing tất cả number trong group chênh lệch nhau <0.2 thì +10đ
     char_spacings = group_data['Char_Spacing'].tolist()
@@ -214,19 +206,11 @@ def calculate_score_for_group(group_data):
 
         if spacing_diff < 0.2:
             score += 10
-            st.write(f"    +10đ (Char_Spacing chênh lệch: {spacing_diff:.3f} < 0.2)")
-        else:
-            st.write(f"    +0đ (Char_Spacing chênh lệch: {spacing_diff:.3f} >= 0.2)")
-    else:
-        st.write(f"    +0đ (Chỉ có 1 số trong group, không thể tính chênh lệch Char_Spacing)")
 
     # Tiêu chí 3: Has_HV_Mix = true thì +10đ
     has_hv_mix = group_data['Has_HV_Mix'].iloc[0] if len(group_data) > 0 else False
     if has_hv_mix:
         score += 20
-        st.write(f"    +10đ (Has_HV_Mix = True)")
-    else:
-        st.write(f"    +0đ (Has_HV_Mix = False)")
 
     return score
 
@@ -242,15 +226,9 @@ def check_grain_exists_in_page(page):
         text_upper = text.upper()
         has_grain = 'GRAIN' in text_upper or 'NIARG' in text_upper
 
-        if has_grain:
-            st.write(f"    ✅ Tìm thấy GRAIN/NIARG trong trang")
-        else:
-            st.write(f"    ❌ Không tìm thấy GRAIN/NIARG trong trang")
-
         return has_grain
 
     except Exception as e:
-        st.write(f"    ❌ Lỗi khi kiểm tra GRAIN: {e}")
         return False
 
 def extract_lines_from_pdf(pdf_path):
@@ -270,8 +248,6 @@ def extract_laminate_classification_with_detail(page):
     *** CẬP NHẬT THÊM: Nếu chỉ tìm thấy 1 keyword thì để trống ***
     """
     try:
-        st.write("🔍 Tìm kiếm Laminate classification với logic mới - theo thứ tự xuất hiện...")
-
         # Danh sách keyword theo thứ tự ưu tiên
         keywords = [
             "FLEX PAPER/PAPER",
@@ -289,7 +265,6 @@ def extract_laminate_classification_with_detail(page):
             for line_num, line in enumerate(page_text.split("\n"), start=1):
                 lines.append((line_num, line.strip()))
         else:
-            st.write("  ❌ Không có text nào trong trang")
             return "", ""
 
         # Tìm tất cả keyword theo thứ tự xuất hiện trong PDF
@@ -303,7 +278,6 @@ def extract_laminate_classification_with_detail(page):
                         "Keyword": kw,
                         "Text": line
                     })
-                    st.write(f"    ✅ Tìm thấy '{kw}' tại dòng {line_num}: {line}")
 
         # *** CẬP NHẬT: CHỈ TRẢ VỀ KẾT QUẢ NẾU CÓ ÍT NHẤT 2 KEYWORD ***
         if len(all_found) >= 2:
@@ -311,18 +285,16 @@ def extract_laminate_classification_with_detail(page):
             second_kw = all_found[1]["Keyword"]
             result = f"{first_kw}/{second_kw}"
             detail = f"Found: {first_kw} (line {all_found[0]['Line']}), {second_kw} (line {all_found[1]['Line']})"
-            st.write(f"  🎯 Cặp keyword tìm được: {result}")
             return result, detail
         elif len(all_found) == 1:
-            st.write(f"  ⚠️  Chỉ tìm thấy 1 keyword: {all_found[0]['Keyword']} → Để trống")
             return "", ""  # *** ĐỂ TRỐNG NẾU CHỈ CÓ 1 KEYWORD ***
         else:
-            st.write("  ❌ Không tìm thấy keyword nào")
             return "", ""
 
     except Exception as e:
-        st.error(f"❌ Lỗi khi trích xuất Laminate: {e}")
         return "", ""
+
+# [Continue with all other functions - I'll provide the essential ones and indicate where others continue]
 
 def find_keyword_positions(text_chars, keyword):
     """Tìm vị trí của từ khóa trong danh sách ký tự - CẬP NHẬT ĐỂ TRẢ VỀ NHIỀU VỊ TRÍ"""
@@ -397,56 +369,20 @@ def find_keyword_positions(text_chars, keyword):
         return positions
 
     except Exception as e:
-        st.write(f"    ❌ Lỗi khi tìm vị trí từ khóa '{keyword}': {e}")
         return positions
 
-def find_related_keywords_in_radius(text_chars, center_x, center_y, all_keywords, radius):
-    """
-    *** CẬP NHẬT: Tìm các từ khóa liên quan trong bán kính - KHÔNG SỬ DỤNG TRONG LOGIC MỚI ***
-    Function này vẫn giữ để tương thích, nhưng logic mới không sử dụng
-    """
-    related = []
-
-    try:
-        for keyword in all_keywords:
-            # Tìm vị trí của keyword này
-            keyword_positions = find_keyword_positions(text_chars, keyword)
-
-            for pos_info in keyword_positions:
-                # Tính khoảng cách
-                distance = math.sqrt(
-                    (pos_info['x'] - center_x)**2 +
-                    (pos_info['y'] - center_y)**2
-                )
-
-                # Nếu trong bán kính và chưa có trong danh sách
-                if distance <= radius and keyword not in related:
-                    # Không thêm chính từ khóa gốc
-                    if abs(pos_info['x'] - center_x) > 5 or abs(pos_info['y'] - center_y) > 5:
-                        related.append(keyword)
-                        st.write(f"      🔗 Tìm thấy liên quan: '{keyword}' - khoảng cách {distance:.1f}px")
-
-        return related
-
-    except Exception as e:
-        st.write(f"    ❌ Lỗi khi tìm từ khóa liên quan: {e}")
-        return related
+# [Continue with other essential functions...]
 
 def search_grain_text_for_group_by_priority(page, group_data, search_distance=200):
     """
     *** UPDATED: Kiểm tra GRAIN trước, nếu có thì mới tìm theo trục và hình vuông ***
     """
     try:
-        st.write(f"    🔍 Kiểm tra có GRAIN/NIARG trong trang...")
-
         # BƯỚC 1: Kiểm tra có GRAIN trong trang không
         if not check_grain_exists_in_page(page):
-            st.write(f"    ⏭️  Bỏ qua tìm GRAIN vì không có chữ GRAIN/NIARG trong file")
             return None, ""
 
         # BƯỚC 2: Nếu có GRAIN, tiến hành tìm kiếm như cũ
-        st.write(f"    🎯 Tiến hành tìm GRAIN cho group theo thứ tự số từ lớn đến nhỏ")
-
         # Sắp xếp group_data theo số từ lớn đến nhỏ
         sorted_group = group_data.sort_values('Valid Number', ascending=False)
 
@@ -456,32 +392,21 @@ def search_grain_text_for_group_by_priority(page, group_data, search_distance=20
             num_y = row['Position_Y']
             num_orientation = row['Orientation']
 
-            st.write(f"      🎯 Đang thử số {num_value} tại ({num_x:.1f}, {num_y:.1f}) - orientation: {num_orientation}")
-
             # Thử tìm theo trục trước
             grain_result = search_grain_along_axis(page, num_x, num_y, num_orientation, search_distance)
 
             if grain_result:
-                st.write(f"        ✅ Tìm thấy GRAIN theo trục: {grain_result}")
-                return idx, grain_result  # *** TRẢ VỀ INDEX VÀ ORIENTATION ***
+                return idx, grain_result
             else:
-                st.write(f"        ❌ Không tìm thấy GRAIN theo trục")
-
                 # Nếu không tìm thấy theo trục, tìm trong hình vuông 200px
-                st.write(f"        🔍 Tìm trong hình vuông 200px quanh số {num_value}")
                 grain_result = search_grain_in_square_area(page, num_x, num_y, search_distance)
 
                 if grain_result:
-                    st.write(f"        ✅ Tìm thấy GRAIN trong phạm vi vuông: {grain_result}")
-                    return idx, grain_result  # *** TRẢ VỀ INDEX VÀ ORIENTATION ***
-                else:
-                    st.write(f"        ❌ Không tìm thấy GRAIN trong phạm vi vuông")
+                    return idx, grain_result
 
-        st.write(f"      ❌ Không tìm thấy GRAIN cho bất kỳ số nào trong group")
-        return None, ""  # *** TRẢ VỀ NONE VÀ EMPTY STRING ***
+        return None, ""
 
     except Exception as e:
-        st.write(f"      ❌ Error trong search_grain_text_for_group_by_priority: {e}")
         return None, ""
 
 def search_grain_along_axis(page, num_x, num_y, num_orientation, search_distance=200):
@@ -570,7 +495,6 @@ def search_grain_along_axis(page, num_x, num_y, num_orientation, search_distance
         return ""
 
     except Exception as e:
-        st.write(f"        ❌ Error in search_grain_along_axis: {e}")
         return ""
 
 def search_grain_in_square_area(page, num_x, num_y, search_distance=200):
@@ -631,7 +555,6 @@ def search_grain_in_square_area(page, num_x, num_y, search_distance=200):
         return ""
 
     except Exception as e:
-        st.write(f"        ❌ Error in search_grain_in_square_area: {e}")
         return ""
 
 def find_grain_sequence_with_direction(candidate_chars):
@@ -737,11 +660,7 @@ def calculate_sequence_similarity(actual_sequence, target_sequence):
     except:
         return 0
 
-# [Tiếp tục các function khác - vì quá dài, tôi sẽ chia thành nhiều phần]
-
-# =============================================================================
-# TIẾP TỤC CÁC FUNCTION KHÁC
-# =============================================================================
+# [Continue with grouping and other functions...]
 
 def expand_small_groups(df):
     """
@@ -752,21 +671,14 @@ def expand_small_groups(df):
     - CHO PHÉP Single orientation từ các nhóm khác tham gia
     """
     try:
-        st.write("\n*** BƯỚC MỞ RỘNG: Tìm số bổ sung cho các nhóm có 2 số (bao gồm Single từ nhóm khác) ***")
-
         # Tìm các nhóm có đúng 2 số
         group_counts = df['Group'].value_counts()
         groups_with_2_numbers = group_counts[group_counts == 2].index.tolist()
 
         if not groups_with_2_numbers:
-            st.write("Không có nhóm nào có đúng 2 số")
             return df
 
-        st.write(f"Các nhóm có 2 số: {groups_with_2_numbers}")
-
         for group_name in groups_with_2_numbers:
-            st.write(f"\n--- Mở rộng {group_name} ---")
-
             # Lấy thông tin nhóm hiện tại
             group_data = df[df['Group'] == group_name]
             if len(group_data) != 2:
@@ -775,17 +687,12 @@ def expand_small_groups(df):
             # Lấy Char_Width chung của nhóm
             group_char_widths = group_data['Char_Width'].unique()
             if len(group_char_widths) != 1:
-                st.write(f"  Nhóm {group_name} không có Char_Width đồng nhất: {group_char_widths}")
                 continue
 
             target_char_width = group_char_widths[0]
             group_char_heights = group_data['Char_Height'].tolist()
             group_font_names = group_data['Font Name'].unique()
             group_orientations = set(group_data['Orientation'].tolist())
-
-            st.write(f"  Nhóm {group_name}: target_char_width={target_char_width}, char_heights={group_char_heights}")
-            st.write(f"  Font names trong nhóm: {group_font_names}")
-            st.write(f"  Orientations trong nhóm: {group_orientations}")
 
             # Tìm các số có thể bổ sung - BAO GỒM CẢ UNGROUPED VÀ CÁC NHÓM KHÁC
             candidate_data = df[df['Group'] != group_name]  # Tất cả số KHÔNG thuộc nhóm hiện tại
@@ -801,7 +708,6 @@ def expand_small_groups(df):
 
                 # *** THÊM KIỂM TRA LOẠI BỎ FONT_SIZE = 20.6 ***
                 if candidate_font_size == 20.6:
-                    st.write(f"    ❌ Bỏ qua số {row['Valid Number']}: Font_Size = 20.6")
                     continue
 
                 # Kiểm tra điều kiện cơ bản
@@ -816,7 +722,6 @@ def expand_small_groups(df):
                 # Nếu ứng viên là Single thì luôn được phép
                 if candidate_orientation == 'Single':
                     condition_5 = True
-                    st.write(f"    🔄 Ứng viên Single: Số {row['Valid Number']} từ {candidate_current_group}")
 
                 # Nếu ứng viên không phải Single, kiểm tra logic H/V Mix
                 elif candidate_orientation in ['Horizontal', 'Vertical']:
@@ -824,10 +729,8 @@ def expand_small_groups(df):
                     new_orientations = group_orientations | {candidate_orientation}
                     if len(new_orientations) > len(group_orientations):  # Thêm orientation mới
                         condition_5 = True
-                        st.write(f"    🔄 Ứng viên H/V: Số {row['Valid Number']} ({candidate_orientation}) từ {candidate_current_group}")
                     else:
                         condition_5 = False  # Trùng orientation đã có
-                        st.write(f"    ❌ Trùng orientation: Số {row['Valid Number']} ({candidate_orientation})")
 
                 if condition_1 and condition_2 and condition_3 and condition_4 and condition_5:
                     candidates.append({
@@ -840,20 +743,9 @@ def expand_small_groups(df):
                         'orientation': candidate_orientation,
                         'current_group': candidate_current_group
                     })
-                    st.write(f"    ✅ Ứng viên hợp lệ: Số {row['Valid Number']} ({candidate_orientation}) từ {candidate_current_group}")
-                else:
-                    reason = []
-                    if not condition_1: reason.append(f"F_Size({candidate_font_size})≠C_Width({candidate_char_width})")
-                    if not condition_2: reason.append(f"C_Width({candidate_char_width})≠Target({target_char_width})")
-                    if not condition_3: reason.append(f"C_Height({candidate_char_height}) chênh lệch >0.2")
-                    if not condition_4: reason.append(f"Font({candidate_font_name}) khác nhóm")
-                    if not condition_5: reason.append(f"Orientation({candidate_orientation}) không phù hợp")
-                    st.write(f"    ❌ Không hợp lệ: Số {row['Valid Number']} - {'; '.join(reason)}")
 
             # Thêm các ứng viên vào nhóm
             if candidates:
-                st.write(f"  🎯 Tìm thấy {len(candidates)} ứng viên cho {group_name}")
-
                 groups_to_check_empty = set()  # Theo dõi các nhóm có thể trở thành rỗng
 
                 for candidate in candidates:
@@ -864,7 +756,6 @@ def expand_small_groups(df):
                     # Chuyển số sang nhóm mới
                     df.loc[candidate['index'], 'Group'] = group_name
                     df.loc[candidate['index'], 'Has_HV_Mix'] = True  # Đánh dấu có mix
-                    st.write(f"    ➕ Chuyển số {candidate['number']} ({candidate['orientation']}) từ {old_group} → {group_name}")
 
                 # Cập nhật Has_HV_Mix cho toàn bộ nhóm
                 df.loc[df['Group'] == group_name, 'Has_HV_Mix'] = True
@@ -873,34 +764,17 @@ def expand_small_groups(df):
                 for old_group in groups_to_check_empty:
                     remaining_count = len(df[df['Group'] == old_group])
                     if remaining_count == 0:
-                        st.write(f"    🗑️  Nhóm {old_group} đã trống")
+                        pass  # Nhóm đã trống
                     elif remaining_count == 1:
                         # Đặt lại số cuối cùng thành UNGROUPED
                         last_number_idx = df[df['Group'] == old_group].index[0]
-                        last_number = df.loc[last_number_idx, 'Valid Number']
                         df.loc[last_number_idx, 'Group'] = 'UNGROUPED'
                         df.loc[last_number_idx, 'Has_HV_Mix'] = False
-                        st.write(f"    🔄 Số {last_number} từ {old_group} → UNGROUPED (nhóm chỉ còn 1 số)")
-
-                # In thông tin nhóm sau khi mở rộng
-                expanded_group = df[df['Group'] == group_name]
-                expanded_numbers = expanded_group['Valid Number'].tolist()
-                expanded_orientations = expanded_group['Orientation'].tolist()
-                st.write(f"  🎯 {group_name} sau mở rộng: {expanded_numbers} (orientations: {expanded_orientations})")
-            else:
-                st.write(f"  ❌ Không tìm thấy ứng viên nào cho {group_name}")
 
         return df
 
     except Exception as e:
-        st.error(f"Error in expand_small_groups: {e}")
         return df
-
-# [Tiếp tục với các function còn lại...]
-
-# =============================================================================
-# CÁC FUNCTION KHÁC (TIẾP TỤC)
-# =============================================================================
 
 def expand_group_to_minimum_3_members(df):
     """
@@ -908,21 +782,14 @@ def expand_group_to_minimum_3_members(df):
     Điều kiện: cùng Font Name, cùng Char_Width và Char_Height chênh lệch ≤ 0.2
     """
     try:
-        st.write("\n*** BƯỚC MỞ RỘNG ĐẶC BIỆT: Đảm bảo group có ít nhất 3 thành viên ***")
-
         # Tìm các nhóm có đúng 2 số
         group_counts = df['Group'].value_counts()
         groups_with_2_numbers = [g for g in group_counts.index if group_counts[g] == 2 and g not in ['UNGROUPED', 'INSUFFICIENT_DATA', 'ERROR']]
 
         if not groups_with_2_numbers:
-            st.write("Không có nhóm nào có đúng 2 số")
             return df
 
-        st.write(f"Các nhóm có 2 số cần mở rộng: {groups_with_2_numbers}")
-
         for group_name in groups_with_2_numbers:
-            st.write(f"\n--- Mở rộng đặc biệt {group_name} ---")
-
             # Lấy thông tin nhóm hiện tại
             group_data = df[df['Group'] == group_name]
             if len(group_data) != 2:
@@ -934,14 +801,10 @@ def expand_group_to_minimum_3_members(df):
             group_char_heights = group_data['Char_Height'].tolist()
 
             if len(group_font_names) != 1 or len(group_char_widths) != 1:
-                st.write(f"  Nhóm {group_name} không có Font Name hoặc Char_Width đồng nhất")
                 continue
 
             target_font_name = group_font_names[0]
             target_char_width = group_char_widths[0]
-
-            st.write(f"  Nhóm {group_name}: target_font_name={target_font_name}, target_char_width={target_char_width}")
-            st.write(f"  Char_Heights trong nhóm: {group_char_heights}")
 
             # Tìm các số có thể bổ sung từ UNGROUPED hoặc các nhóm khác
             candidate_data = df[df['Group'] != group_name]
@@ -973,7 +836,6 @@ def expand_group_to_minimum_3_members(df):
                         'orientation': row['Orientation'],
                         'current_group': candidate_current_group
                     })
-                    st.write(f"    ✅ Ứng viên hợp lệ: Số {row['Valid Number']} ({row['Orientation']}) từ {candidate_current_group}")
 
             # Thêm ít nhất 1 ứng viên để đạt tối thiểu 3 thành viên
             if candidates:
@@ -983,34 +845,19 @@ def expand_group_to_minimum_3_members(df):
 
                 # Chuyển số sang nhóm mới
                 df.loc[selected_candidate['index'], 'Group'] = group_name
-                st.write(f"    ➕ Chuyển số {selected_candidate['number']} từ {old_group} → {group_name}")
 
                 # Xử lý nhóm cũ nếu cần
                 if old_group != 'UNGROUPED':
                     remaining_count = len(df[df['Group'] == old_group])
-                    if remaining_count == 0:
-                        st.write(f"    🗑️  Nhóm {old_group} đã trống")
-                    elif remaining_count == 1:
+                    if remaining_count == 1:
                         # Đặt lại số cuối cùng thành UNGROUPED
                         last_number_idx = df[df['Group'] == old_group].index[0]
-                        last_number = df.loc[last_number_idx, 'Valid Number']
                         df.loc[last_number_idx, 'Group'] = 'UNGROUPED'
                         df.loc[last_number_idx, 'Has_HV_Mix'] = False
-                        st.write(f"    🔄 Số {last_number} từ {old_group} → UNGROUPED (nhóm chỉ còn 1 số)")
-
-                # In thông tin nhóm sau khi mở rộng
-                expanded_group = df[df['Group'] == group_name]
-                expanded_numbers = expanded_group['Valid Number'].tolist()
-                expanded_orientations = expanded_group['Orientation'].tolist()
-                st.write(f"  🎯 {group_name} sau mở rộng đặc biệt: {expanded_numbers} (orientations: {expanded_orientations})")
-                st.write(f"  ✅ Nhóm {group_name} đã có {len(expanded_group)} thành viên")
-            else:
-                st.write(f"  ❌ Không tìm thấy ứng viên nào cho {group_name}")
 
         return df
 
     except Exception as e:
-        st.error(f"Error in expand_group_to_minimum_3_members: {e}")
         return df
 
 def check_uniform_metrics_for_has_hv_mix(group_data):
@@ -1034,15 +881,9 @@ def check_uniform_metrics_for_has_hv_mix(group_data):
 
         is_uniform = uniform_font_size and uniform_char_width and uniform_char_height
 
-        if is_uniform:
-            st.write(f"    📏 Tất cả số có cùng Font_Size={font_sizes[0]}, Char_Width={char_widths[0]}, Char_Height={char_heights[0]} → Has_HV_Mix = False")
-        else:
-            st.write(f"    📏 Metrics khác nhau: Font_Size={font_sizes}, Char_Width={char_widths}, Char_Height={char_heights} → Giữ Has_HV_Mix hiện tại")
-
         return is_uniform
 
     except Exception as e:
-        st.write(f"    ❌ Lỗi khi kiểm tra uniform metrics: {e}")
         return False
 
 def group_numbers_by_font_characteristics(df):
@@ -1055,8 +896,6 @@ def group_numbers_by_font_characteristics(df):
             df['Group'] = 'INSUFFICIENT_DATA'
             df['Has_HV_Mix'] = False
             return df
-
-        st.write("Phân nhóm theo đặc tính font (cho phép Single orientation nhóm với H/V, Char_Height chênh lệch ≤ 0.2)...")
 
         # Khởi tạo cột Group và Has_HV_Mix
         df['Group'] = 'UNGROUPED'
@@ -1076,7 +915,6 @@ def group_numbers_by_font_characteristics(df):
 
             # *** THÊM KIỂM TRA LOẠI BỎ FONT_SIZE = 20.6 ***
             if current_font_size == 20.6:
-                st.write(f"  ❌ Bỏ qua số {row['Valid Number']}: Font_Size = 20.6")
                 continue
 
             # Tìm tất cả số có cùng đặc tính
@@ -1105,7 +943,6 @@ def group_numbers_by_font_characteristics(df):
                     current_char_height == other_char_height and
                     current_font_name == other_font_name):
                     is_same_group = True
-                    st.write(f"  Số {row['Valid Number']} và {other_row['Valid Number']}: Cùng tất cả đặc tính")
 
                 # ĐIỀU KIỆN 2: Chênh lệch Char_Height ≤ 0.2 + cùng các đặc tính khác
                 elif (current_font_name == other_font_name and
@@ -1113,7 +950,6 @@ def group_numbers_by_font_characteristics(df):
                       current_font_size == other_font_size and
                       abs(current_char_height - other_char_height) <= 0.2):
                     is_same_group = True
-                    st.write(f"  Số {row['Valid Number']} và {other_row['Valid Number']}: Cùng đặc tính, Char_Height chênh lệch {abs(current_char_height - other_char_height):.1f} ≤ 0.2")
 
                 # ĐIỀU KIỆN 3: Single orientation với H/V có cùng đặc tính font
                 elif (current_font_name == other_font_name and
@@ -1125,7 +961,6 @@ def group_numbers_by_font_characteristics(df):
                     orientations = {current_orientation, other_orientation}
                     if 'Single' in orientations and ('Horizontal' in orientations or 'Vertical' in orientations):
                         is_same_group = True
-                        st.write(f"  Số {row['Valid Number']} và {other_row['Valid Number']}: Single+H/V mix - cùng font đặc tính, Char_Height chênh lệch {abs(current_char_height - other_char_height):.1f} ≤ 0.2")
 
                 # ĐIỀU KIỆN 4: Trường hợp đặc biệt Horizontal/Vertical mix với Char_Height chênh lệch ≤ 0.2
                 elif (current_font_name == other_font_name and
@@ -1143,9 +978,6 @@ def group_numbers_by_font_characteristics(df):
                         # Kiểm tra: Vertical font_size phải = char_width
                         if vertical_row['Font_Size'] == vertical_row['Char_Width']:
                             is_same_group = True
-                            st.write(f"  Số {row['Valid Number']} và {other_row['Valid Number']}: H/V mix - V.font_size({vertical_row['Font_Size']}) = V.char_width({vertical_row['Char_Width']}), Char_Height chênh lệch {abs(current_char_height - other_char_height):.1f} ≤ 0.2")
-                        else:
-                            st.write(f"  Số {row['Valid Number']} và {other_row['Valid Number']}: H/V mix FAILED - V.font_size({vertical_row['Font_Size']}) ≠ V.char_width({vertical_row['Char_Width']})")
 
                 if is_same_group:
                     group_indices.append(j)
@@ -1170,7 +1002,6 @@ def group_numbers_by_font_characteristics(df):
                         # Tất cả metrics giống nhau → Has_HV_Mix = False
                         for idx in group_indices:
                             df.loc[idx, 'Has_HV_Mix'] = False
-                        st.write(f"Tạo {group_name}: {numbers_in_group} (orientations: {orientations_in_group}, font_sizes: {font_sizes_in_group}, char_heights: {char_heights_in_group}) *** UNIFORM METRICS - Has_HV_Mix = False ***")
                     else:
                         # KIỂM TRA CÓ ORIENTATION MIX KHÔNG (bao gồm cả Single)
                         unique_orientations = set(orientations_in_group)
@@ -1178,9 +1009,6 @@ def group_numbers_by_font_characteristics(df):
                             # Đánh dấu nhóm này có mix
                             for idx in group_indices:
                                 df.loc[idx, 'Has_HV_Mix'] = True
-                            st.write(f"Tạo {group_name}: {numbers_in_group} (orientations: {orientations_in_group}, font_sizes: {font_sizes_in_group}, char_heights: {char_heights_in_group}) *** ORIENTATION MIX ***")
-                        else:
-                            st.write(f"Tạo {group_name}: {numbers_in_group} (orientations: {orientations_in_group}, font_sizes: {font_sizes_in_group}, char_heights: {char_heights_in_group})")
 
                 group_counter += 1
 
@@ -1191,12 +1019,10 @@ def group_numbers_by_font_characteristics(df):
         df = expand_group_to_minimum_3_members(df)
 
         # BƯỚC 3: *** KIỂM TRA LẠI UNIFORM METRICS SAU KHI MỞ RỘNG ***
-        st.write("\n*** KIỂM TRA LẠI UNIFORM METRICS SAU KHI MỞ RỘNG ***")
         for group_name in df['Group'].unique():
             if group_name not in ['UNGROUPED', 'INSUFFICIENT_DATA', 'ERROR']:
                 group_data = df[df['Group'] == group_name]
                 if len(group_data) > 1:
-                    st.write(f"\nKiểm tra {group_name}:")
                     is_uniform = check_uniform_metrics_for_has_hv_mix(group_data)
 
                     if is_uniform:
@@ -1206,7 +1032,6 @@ def group_numbers_by_font_characteristics(df):
         return df
 
     except Exception as e:
-        st.error(f"Error in group_numbers_by_font_characteristics: {e}")
         df['Group'] = 'ERROR'
         df['Has_HV_Mix'] = False
         return df
@@ -1249,7 +1074,6 @@ def extract_foil_classification_with_detail(page):
         return classification if classification else "", detail
 
     except Exception as e:
-        st.error(f"Error extracting FOIL classification: {e}")
         return "", ""
 
 def extract_edgeband_classification_with_detail(page):
@@ -1290,7 +1114,6 @@ def extract_edgeband_classification_with_detail(page):
         return classification if classification else "", detail
 
     except Exception as e:
-        st.error(f"Error extracting EDGEBAND classification: {e}")
         return "", ""
 
 def extract_profile_from_page(page):
@@ -1320,7 +1143,6 @@ def extract_profile_from_page(page):
 
         return ""
     except Exception as e:
-        st.error(f"Error extracting profile: {e}")
         return ""
 
 def is_valid_font(fontname):
@@ -1346,9 +1168,6 @@ def determine_preferred_font_with_frequency_3(all_fonts, digit_chars):
     font_priorities = [(font, get_font_priority(font)) for font in all_fonts]
     valid_font_priorities = [(font, priority) for font, priority in font_priorities if priority > 0]
 
-    st.write(f"Fonts tìm thấy: {all_fonts}")
-    st.write(f"Valid F fonts: {[fp[0] for fp in valid_font_priorities]}")
-
     # Nếu có font F2/F3 hợp lệ
     if valid_font_priorities:
         # Đếm số ký tự của mỗi font F
@@ -1364,38 +1183,30 @@ def determine_preferred_font_with_frequency_3(all_fonts, digit_chars):
                 font_char_counts[fontname].append(char)
 
         total_valid_chars = sum(len(chars) for chars in font_char_counts.values())
-        st.write(f"Tổng số ký tự hợp lệ từ F fonts: {total_valid_chars}")
 
         # Nếu có từ 3 kết quả trở lên và có cả F2 và F3, ưu tiên theo Position
         if total_valid_chars >= 3 and len(font_char_counts) >= 2:
-            st.write("Có từ 3 kết quả và nhiều F font -> Ưu tiên theo Position_X và Position_Y lớn")
-
             font_avg_positions = {}
             for fontname, chars in font_char_counts.items():
                 avg_x = sum(c.get('x0', 0) for c in chars) / len(chars)
                 avg_y = sum(c.get('top', 0) for c in chars) / len(chars)
                 font_avg_positions[fontname] = (avg_x, avg_y)
-                st.write(f"Font {fontname}: avg_x={avg_x:.1f}, avg_y={avg_y:.1f}")
 
             # Sắp xếp theo Position_Y giảm dần, sau đó Position_X giảm dần
             sorted_fonts = sorted(font_avg_positions.items(),
                                 key=lambda x: (x[1][1], x[1][0]), reverse=True)
 
             selected_font = sorted_fonts[0][0]
-            st.write(f"Font được chọn theo position: {selected_font}")
             return selected_font
 
         else:
             # Chọn theo priority như cũ
             valid_font_priorities.sort(key=lambda x: x[1], reverse=True)
             selected_font = valid_font_priorities[0][0]
-            st.write(f"Font được chọn theo priority: {selected_font}")
             return selected_font
 
     else:
         # BƯỚC 2: FALLBACK - TÌM FONT CÓ FREQUENCY = 3
-        st.write("Không tìm thấy F2/F3 -> Fallback mode: tìm font có frequency = 3")
-
         # Đếm số lần xuất hiện của mỗi font - LOẠI BỎ FONT_SIZE = 20.6
         font_frequencies = {}
         for char in digit_chars:
@@ -1407,25 +1218,16 @@ def determine_preferred_font_with_frequency_3(all_fonts, digit_chars):
                 font_frequencies[fontname] = 0
             font_frequencies[fontname] += 1
 
-        st.write("Font frequencies:")
-        for font, freq in font_frequencies.items():
-            st.write(f"  {font}: {freq} times")
-
         # Tìm font có frequency chính xác = 3
         fonts_with_freq_3 = [font for font, freq in font_frequencies.items() if freq == 3]
-
-        st.write(f"Fonts có frequency = 3: {fonts_with_freq_3}")
 
         if fonts_with_freq_3:
             if len(fonts_with_freq_3) == 1:
                 # Chỉ có 1 font có frequency = 3
                 selected_font = fonts_with_freq_3[0]
-                st.write(f"Font được chọn (frequency = 3): {selected_font}")
                 return selected_font
             else:
                 # Nhiều font có frequency = 3 -> chọn theo position trung bình cao nhất
-                st.write(f"Có {len(fonts_with_freq_3)} fonts với frequency = 3 -> Chọn theo position")
-
                 font_avg_positions = {}
                 for fontname in fonts_with_freq_3:
                     chars_of_font = [c for c in digit_chars if c.get('fontname', 'Unknown') == fontname and c.get('size', 0) != 20.6]
@@ -1433,36 +1235,26 @@ def determine_preferred_font_with_frequency_3(all_fonts, digit_chars):
                         avg_x = sum(c.get('x0', 0) for c in chars_of_font) / len(chars_of_font)
                         avg_y = sum(c.get('top', 0) for c in chars_of_font) / len(chars_of_font)
                         font_avg_positions[fontname] = (avg_x, avg_y)
-                        st.write(f"Font {fontname}: avg_x={avg_x:.1f}, avg_y={avg_y:.1f}")
 
                 if font_avg_positions:
                     # Chọn font có position cao nhất
                     sorted_fonts = sorted(font_avg_positions.items(),
                                         key=lambda x: (x[1][1], x[1][0]), reverse=True)
                     selected_font = sorted_fonts[0][0]
-                    st.write(f"Font được chọn theo position (từ frequency = 3): {selected_font}")
                     return selected_font
 
         # BƯỚC 3: Nếu không có font frequency = 3, tìm font có nhiều ký tự nhất
-        st.write("Không có font frequency = 3 -> Chọn font có nhiều ký tự nhất")
-
         # Tìm font có ít nhất 3 ký tự
         valid_fallback_fonts = {font: freq for font, freq in font_frequencies.items() if freq >= 3}
 
         if valid_fallback_fonts:
             # Chọn font có nhiều ký tự nhất
             selected_font = max(valid_fallback_fonts.items(), key=lambda x: x[1])[0]
-            st.write(f"Font fallback được chọn: {selected_font} (có {valid_fallback_fonts[selected_font]} ký tự)")
             return selected_font
         else:
-            st.write("Không tìm thấy font nào có ít nhất 3 ký tự")
             return None
 
-# [Tiếp tục với các function extract_numbers và các function khác...]
-
-# =============================================================================
-# CÁC FUNCTION EXTRACT NUMBERS
-# =============================================================================
+# [Continue with remaining extraction functions...]
 
 def extract_numbers_and_decimals_from_chars(page):
     """METHOD: Trích xuất số và số thập phân - CẬP NHẬT LOGIC FONT FREQUENCY"""
@@ -1485,8 +1277,6 @@ def extract_numbers_and_decimals_from_chars(page):
         if not preferred_font:
             return numbers, orientations, font_info
 
-        st.write(f"Font được chọn: {preferred_font}")
-
         char_groups = create_character_groups_with_decimals(digit_and_dot_chars, preferred_font)
         extracted_numbers = []
 
@@ -1495,7 +1285,6 @@ def extract_numbers_and_decimals_from_chars(page):
                 try:
                     # *** THÊM KIỂM TRA LOẠI BỎ FONT_SIZE = 20.6 ***
                     if group[0].get('size', 0) == 20.6:
-                        st.write(f"❌ Bỏ qua số đơn lẻ: Font_Size = 20.6")
                         continue
 
                     num_value = int(group[0]['text'])
@@ -1546,7 +1335,7 @@ def extract_numbers_and_decimals_from_chars(page):
                     extracted_numbers.append(number)
 
     except Exception as e:
-        st.error(f"Error in char extraction: {e}")
+        pass
 
     return numbers, orientations, font_info
 
@@ -1697,8 +1486,6 @@ def process_character_group_with_decimals(group, extracted_numbers, preferred_fo
     except Exception:
         return None
 
-# [Tiếp tục với các function extract_all_valid_numbers...]
-
 def extract_all_valid_numbers_from_page(page):
     """BẢNG PHỤ: Trích xuất TẤT CẢ số hợp lệ - XOAY TẠI NGUỒN KHI TÍNH METRICS"""
     all_valid_numbers = []
@@ -1709,8 +1496,6 @@ def extract_all_valid_numbers_from_page(page):
 
         if not digit_and_dot_chars:
             return all_valid_numbers
-
-        st.write(f"Tổng số ký tự digit và dấu chấm tìm thấy: {len(digit_and_dot_chars)}")
 
         # Nhóm tất cả ký tự digit và dấu chấm thành các số
         char_groups = create_character_groups_for_all_numbers_with_decimals(digit_and_dot_chars)
@@ -1800,11 +1585,9 @@ def extract_all_valid_numbers_from_page(page):
                             'text_angle': metrics['text_angle']
                         })
 
-        st.write(f"Tổng số hợp lệ tìm thấy: {len(all_valid_numbers)}")
         return all_valid_numbers
 
     except Exception as e:
-        st.error(f"Error in extract_all_valid_numbers_from_page: {e}")
         return all_valid_numbers
 
 def create_character_groups_for_all_numbers_with_decimals(digit_and_dot_chars):
@@ -1961,14 +1744,9 @@ def create_dimension_summary_with_score_priority(df, df_all_numbers):
                 highest_score_group = group_scores.index[0]
                 highest_score = group_scores.iloc[0]
 
-                st.write(f"🎯 SỬ DỤNG NHÓM CÓ SCORE CAO NHẤT VÀ ÍT NHẤT 3 THÀNH VIÊN:")
-                st.write(f"   Nhóm: {highest_score_group} (SCORE: {highest_score}, Size: {group_sizes[highest_score_group]})")
-
                 # *** CHỈ LẤY NUMBERS TỪ NHÓM ĐƯỢC CHỌN ***
                 high_score_group_data = df_all_numbers[df_all_numbers['Group'] == highest_score_group]
                 selected_numbers = high_score_group_data['Valid Number'].tolist()  # GIỮ NGUYÊN TẤT CẢ, KỂ CẢ TRÙNG LẶP
-
-                st.write(f"   Các số trong nhóm (bao gồm trùng lặp): {selected_numbers}")
 
                 # Lấy GRAIN orientation nếu có
                 if 'GRAIN_Orientation' in high_score_group_data.columns:
@@ -1977,44 +1755,31 @@ def create_dimension_summary_with_score_priority(df, df_all_numbers):
                     if valid_grains:
                         grain_counts = Counter(valid_grains)
                         grain_orientation = grain_counts.most_common(1)[0][0]
-                        st.write(f"   🌾 GRAIN_Orientation: {grain_orientation}")
 
             else:
-                st.write("⚠️  KHÔNG CÓ NHÓM HỢP LỆ (>= 3 thành viên) - SỬ DỤNG TẤT CẢ SỐ:")
                 all_numbers = df['Number_Int'].tolist()
                 selected_numbers = all_numbers
         else:
-            st.write("⚠️  KHÔNG CÓ NHÓM NÀO CÓ ÍT NHẤT 3 THÀNH VIÊN - SỬ DỤNG TẤT CẢ SỐ:")
             all_numbers = df['Number_Int'].tolist()
             selected_numbers = all_numbers
     else:
-        st.write("⚠️  KHÔNG CÓ CỘT SCORE - SỬ DỤNG TẤT CẢ SỐ:")
         all_numbers = df['Number_Int'].tolist()
         selected_numbers = all_numbers
-
-    st.write(f"   Các số được chọn: {selected_numbers}")
-    st.write(f"   🌾 GRAIN_Orientation: {grain_orientation if grain_orientation else 'Không xác định'}")
 
     # *** LOGIC DIMENSION MỚI - SỬ DỤNG SELECTED_NUMBERS ***
     length_number = ""
     width_number = ""
     height_number = ""
 
-    st.write(f"   📏 ÁP DỤNG LOGIC DIMENSION MỚI")
-
     # Đếm tần suất của từng số - SỬ DỤNG Counter ĐÃ IMPORT
     number_counts = Counter(selected_numbers)
     unique_numbers = sorted(list(set(selected_numbers)), reverse=True)
-    
-    st.write(f"   Tần suất số: {dict(number_counts)}")
-    st.write(f"   Các số unique (từ lớn đến nhỏ): {unique_numbers}")
 
     if len(unique_numbers) == 1:
         # Chỉ có 1 loại số: L = W = H
         length_number = str(unique_numbers[0])
         width_number = str(unique_numbers[0])
         height_number = str(unique_numbers[0])
-        st.write(f"   Logic: 1 số duy nhất → L=W=H={unique_numbers[0]}")
 
     elif len(unique_numbers) == 2:
         # Có 2 loại số
@@ -2024,45 +1789,34 @@ def create_dimension_summary_with_score_priority(df, df_all_numbers):
         larger_count = number_counts[larger_num]
         smaller_count = number_counts[smaller_num]
         
-        st.write(f"   Số lớn {larger_num} xuất hiện {larger_count} lần")
-        st.write(f"   Số nhỏ {smaller_num} xuất hiện {smaller_count} lần")
-        
         if larger_count >= 2:
             # Số lớn xuất hiện >= 2 lần: L=W=số lớn, H=số nhỏ
             length_number = str(larger_num)
             width_number = str(larger_num)
             height_number = str(smaller_num)
-            st.write(f"   Logic: Số lớn lặp >= 2 lần → L=W={larger_num}, H={smaller_num}")
         elif smaller_count >= 2:
             # Số nhỏ xuất hiện >= 2 lần: L=số lớn, W=H=số nhỏ
             length_number = str(larger_num)
             width_number = str(smaller_num)
             height_number = str(smaller_num)
-            st.write(f"   Logic: Số nhỏ lặp >= 2 lần → L={larger_num}, W=H={smaller_num}")
         else:
             # Mỗi số xuất hiện 1 lần: L=số lớn, W=H=số nhỏ
             length_number = str(larger_num)
             width_number = str(smaller_num)
             height_number = str(smaller_num)
-            st.write(f"   Logic: 2 số khác nhau → L={larger_num}, W=H={smaller_num}")
 
     elif len(unique_numbers) >= 3:
         # *** LOGIC CHO 3+ LOẠI SỐ ***
         
         # Xử lý trường hợp có GRAIN
         if grain_orientation in ['Horizontal', 'Vertical']:
-            st.write(f"   🌾 Có GRAIN ({grain_orientation}) → Điều chỉnh theo GRAIN")
-            
             # Với GRAIN, vẫn ưu tiên số lớn nhất làm chiều dài
             length_number = str(unique_numbers[0])
             width_number = str(unique_numbers[1])
             height_number = str(unique_numbers[2])
-            st.write(f"   Logic: GRAIN → L={length_number}, W={width_number}, H={height_number}")
             
         else:
             # Không có GRAIN → logic tiêu chuẩn
-            st.write(f"   Không có GRAIN → Áp dụng logic tiêu chuẩn")
-            
             # Kiểm tra pattern lặp lại
             repeated_numbers = [num for num, count in number_counts.items() if count >= 2]
             
@@ -2077,19 +1831,16 @@ def create_dimension_summary_with_score_priority(df, df_all_numbers):
                         length_number = str(main_repeated)
                         width_number = str(main_repeated)
                         height_number = str(unique_numbers[1])  # Số lớn thứ 2
-                        st.write(f"   Logic: Số lớn nhất lặp → L=W={main_repeated}, H={unique_numbers[1]}")
                     else:
                         # Fallback
                         length_number = str(unique_numbers[0])
                         width_number = str(unique_numbers[1])
                         height_number = str(unique_numbers[2])
-                        st.write(f"   Logic: Fallback → L={length_number}, W={width_number}, H={height_number}")
                 else:
                     # Số nhỏ hơn bị lặp: L=số lớn, W=H=số lặp
                     length_number = str(unique_numbers[0])
                     width_number = str(main_repeated)
                     height_number = str(main_repeated)
-                    st.write(f"   Logic: Số nhỏ lặp → L={length_number}, W=H={main_repeated}")
             else:
                 # Không có số lặp, 3+ số khác nhau
                 if len(unique_numbers) == 5:
@@ -2097,13 +1848,11 @@ def create_dimension_summary_with_score_priority(df, df_all_numbers):
                     length_number = str(unique_numbers[0])
                     width_number = str(unique_numbers[-2])
                     height_number = str(unique_numbers[-1])
-                    st.write(f"   Logic: 5 số khác nhau → L={length_number}, W={width_number}, H={height_number}")
                 else:
                     # Trường hợp 3-4 số: L=lớn nhất, W=giữa, H=nhỏ nhất
                     length_number = str(unique_numbers[0])
                     width_number = str(unique_numbers[1])
                     height_number = str(unique_numbers[-1])
-                    st.write(f"   Logic: {len(unique_numbers)} số khác nhau → L={length_number}, W={width_number}, H={height_number}")
 
     # Lấy filename và thông tin khác
     filename = df.iloc[0]['File']
@@ -2125,15 +1874,10 @@ def create_dimension_summary_with_score_priority(df, df_all_numbers):
         "Profile": [profile_info]
     })
 
-    st.write(f"   Kết quả: L={length_number}, W={width_number}, H={height_number}, Laminate={laminate_info}")
-    if grain_orientation:
-        st.write(f"   🌾 GRAIN direction: {grain_orientation}")
-    st.write("-" * 70)
-
     return result_df
 
 # =============================================================================
-# STREAMLIT APP MAIN
+# STREAMLIT APP MAIN - SIMPLIFIED VERSION
 # =============================================================================
 
 def main():
@@ -2167,8 +1911,6 @@ def main():
                 progress_bar.progress(progress)
                 status_text.text(f"Processing {filename}...")
                 
-                st.markdown(f"### 📄 Processing: {filename}")
-                
                 # Read PDF from uploaded file
                 pdf_bytes = uploaded_file.read()
                 
@@ -2176,12 +1918,10 @@ def main():
                     total_pages = len(pdf.pages)
                     
                     if total_pages == 0:
-                        st.warning(f"⚠️ File {filename} has no pages")
                         continue
                     
                     # *** CHỈ XỬ LÝ TRANG ĐẦU TIÊN ***
                     page = pdf.pages[0]
-                    st.info(f"📄 Processing first page of {filename} ({total_pages} total pages)")
                     
                     # Trích xuất thông tin profile
                     profile_info = extract_profile_from_page(page)
@@ -2200,9 +1940,6 @@ def main():
                     
                     # Trích xuất TẤT CẢ số hợp lệ (CHO BẢNG PHỤ)
                     all_valid_numbers = extract_all_valid_numbers_from_page(page)
-                    
-                    if not char_numbers:
-                        st.warning(f"⚠️ No valid numbers found in {filename} for main table")
                     
                     # Xử lý kết quả cho BẢNG CHÍNH
                     file_main_results = []
@@ -2255,8 +1992,6 @@ def main():
                     if file_secondary_results:
                         df_file_secondary = pd.DataFrame(file_secondary_results)
                         
-                        st.markdown(f"#### 🔧 Grouping and scoring for {filename}")
-                        
                         # Phân nhóm và tính score
                         df_file_secondary = group_numbers_by_font_characteristics(df_file_secondary)
                         
@@ -2280,7 +2015,6 @@ def main():
                             
                             if len(group_scores) > 0:
                                 highest_score_group = group_scores.index[0]
-                                st.write(f"\n🌾 Finding GRAIN for highest score group with ≥3 members: {highest_score_group}")
                                 
                                 group_data = df_file_secondary[df_file_secondary['Group'] == highest_score_group]
                                 
@@ -2293,12 +2027,6 @@ def main():
                                     
                                     if found_idx is not None and grain_orientation:
                                         df_file_secondary.loc[found_idx, 'GRAIN_Orientation'] = grain_orientation
-                                        found_number = df_file_secondary.loc[found_idx, 'Valid Number']
-                                        st.write(f"    ✅ Added orientation '{grain_orientation}' for number {found_number}")
-                            else:
-                                st.write(f"\n⚠️ No valid groups (≥3 members) to find GRAIN")
-                        else:
-                            st.write(f"\n⚠️ No groups with at least 3 members")
                         
                         # Dọn dẹp cột Page
                         df_file_secondary = df_file_secondary.drop(columns=['Page'])
@@ -2326,7 +2054,6 @@ def main():
                 summary_results = []
                 for file_group in df_final.groupby("File"):
                     filename, file_data = file_group
-                    st.markdown(f"#### 📋 Creating dimension summary for: {filename}")
                     
                     # Lấy df_all_numbers cho file này
                     file_all_numbers = df_all_numbers[df_all_numbers['File'] == filename] if not df_all_numbers.empty else pd.DataFrame()
@@ -2337,73 +2064,35 @@ def main():
                 # Kết hợp tất cả kết quả
                 final_summary = pd.concat(summary_results, ignore_index=True) if summary_results else pd.DataFrame(columns=["Drawing#", "Length (mm)", "Width (mm)", "Height (mm)", "Laminate", "FOIL", "EDGEBAND", "Profile"])
                 
-                # HIỂN THỊ KẾT QUẢ
+                # *** CHỈ HIỂN THỊ BẢNG CHÍNH ***
                 st.markdown("---")
                 st.markdown("## 📊 Results")
                 
-                st.markdown("### 📋 Main Table - Dimension Summary")
                 st.dataframe(final_summary, use_container_width=True)
                 
-                st.markdown("### 📝 Secondary Table - All Valid Numbers")
-                
-                if not df_all_numbers.empty:
-                    # Sắp xếp theo SCORE giảm dần, sau đó Group, file, position Y, position X
-                    df_all_numbers_sorted = df_all_numbers.sort_values(['SCORE', 'Group', 'File', 'Position_Y', 'Position_X'], ascending=[False, True, True, True, True]).reset_index(drop=True)
-                    # Loại bỏ cột Index để hiển thị gọn hơn
-                    df_display = df_all_numbers_sorted.drop(columns=['Index'] if 'Index' in df_all_numbers_sorted.columns else [])
-                    st.dataframe(df_display, use_container_width=True)
-                    
-                    st.info(f"Total: {len(df_all_numbers)} valid numbers found")
-                else:
-                    st.warning("No valid numbers found.")
-                    empty_df = pd.DataFrame(columns=["File", "Valid Number", "Font Name", "Font Weight", "Orientation", "Position_X", "Position_Y", "Chars_Count", "Font_Size", "Char_Width", "Char_Height", "Density_Score", "Distance_Origin", "Aspect_Ratio", "Char_Spacing", "Text_Angle", "Group", "Has_HV_Mix", "SCORE", "GRAIN_Orientation"])
-                    st.dataframe(empty_df, use_container_width=True)
-                
-                # Download buttons
+                # *** DOWNLOAD BUTTON CHO EXCEL ***
                 st.markdown("---")
-                st.markdown("### 💾 Download Results")
                 
-                col1, col2 = st.columns(2)
+                # Create Excel file in memory
+                output = io.BytesIO()
+                with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                    final_summary.to_excel(writer, sheet_name='Results', index=False)
+                    
+                excel_data = output.getvalue()
                 
-                with col1:
-                    # Download main table
-                    csv_main = final_summary.to_csv(index=False)
-                    st.download_button(
-                        label="📋 Download Main Table (CSV)",
-                        data=csv_main,
-                        file_name="dimension_summary.csv",
-                        mime="text/csv"
-                    )
-                
-                with col2:
-                    # Download secondary table
-                    if not df_all_numbers.empty:
-                        csv_secondary = df_display.to_csv(index=False)
-                        st.download_button(
-                            label="📝 Download Secondary Table (CSV)",
-                            data=csv_secondary,
-                            file_name="all_valid_numbers.csv",
-                            mime="text/csv"
-                        )
+                st.download_button(
+                    label="📋 Download Excel",
+                    data=excel_data,
+                    file_name="dimension_summary.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
             
             else:
-                st.warning("No data to display for main table")
+                st.warning("No data to display")
                 
-                # Display empty tables
-                st.markdown("### 📋 Main Table")
+                # Display empty table
                 empty_main = pd.DataFrame(columns=["Drawing#", "Length (mm)", "Width (mm)", "Height (mm)", "Laminate", "FOIL", "EDGEBAND", "Profile"])
                 st.dataframe(empty_main, use_container_width=True)
-                
-                st.markdown("### 📝 Secondary Table")
-                if not df_all_numbers.empty:
-                    df_all_numbers_sorted = df_all_numbers.sort_values(['SCORE', 'Group', 'File', 'Position_Y', 'Position_X'], ascending=[False, True, True, True, True]).reset_index(drop=True)
-                    df_display = df_all_numbers_sorted.drop(columns=['Index'] if 'Index' in df_all_numbers_sorted.columns else [])
-                    st.dataframe(df_display, use_container_width=True)
-                    st.info(f"Total: {len(df_all_numbers)} valid numbers found")
-                else:
-                    st.warning("No valid numbers found.")
-                    empty_secondary = pd.DataFrame(columns=["File", "Valid Number", "Font Name", "Font Weight", "Orientation", "Position_X", "Position_Y", "Chars_Count", "Font_Size", "Char_Width", "Char_Height", "Density_Score", "Distance_Origin", "Aspect_Ratio", "Char_Spacing", "Text_Angle", "Group", "Has_HV_Mix", "SCORE", "GRAIN_Orientation"])
-                    st.dataframe(empty_secondary, use_container_width=True)
 
 if __name__ == "__main__":
     main()
