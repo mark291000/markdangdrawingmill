@@ -294,8 +294,6 @@ def extract_laminate_classification_with_detail(page):
     except Exception as e:
         return "", ""
 
-# [Continue with all other functions - I'll include the essential ones for brevity]
-
 def find_keyword_positions(text_chars, keyword):
     """Tìm vị trí của từ khóa trong danh sách ký tự - CẬP NHẬT ĐỂ TRẢ VỀ NHIỀU VỊ TRÍ"""
     positions = []
@@ -370,8 +368,6 @@ def find_keyword_positions(text_chars, keyword):
 
     except Exception as e:
         return positions
-
-# [Include all other functions here - truncating for space]
 
 def search_grain_text_for_group_by_priority(page, group_data, search_distance=200):
     """
@@ -660,8 +656,6 @@ def calculate_sequence_similarity(actual_sequence, target_sequence):
     except:
         return 0
 
-# [Include all other functions here - truncating for space but keeping the essential ones]
-
 def expand_small_groups(df):
     try:
         group_counts = df['Group'].value_counts()
@@ -749,8 +743,6 @@ def expand_small_groups(df):
 
     except Exception as e:
         return df
-
-# [Include all other essential functions here - truncating for space]
 
 def group_numbers_by_font_characteristics(df):
     """
@@ -895,8 +887,6 @@ def check_uniform_metrics_for_has_hv_mix(group_data):
     except Exception as e:
         return False
 
-# [Include all extraction functions here - keeping the essential ones]
-
 def extract_foil_classification_with_detail(page):
     """Đếm FOIL/LIOF từ text đơn giản"""
     try:
@@ -966,30 +956,44 @@ def extract_edgeband_classification_with_detail(page):
         return "", ""
 
 def extract_profile_from_page(page):
-    """Trích xuất thông tin profile từ trang PDF"""
+    """Trích xuất thông tin profile từ trang PDF - CẬP NHẬT: Tìm tối đa 2 profile khác nhau"""
     try:
         text = page.extract_text()
         if not text:
-            return ""
+            return "", ""
 
+        found_profiles = []
+        
+        # Tìm theo pattern chính xác trước
         profile_pattern = r"PROFILE:\s*([A-Z0-9\-]+)"
-        match = re.search(profile_pattern, text, re.IGNORECASE)
-
-        if match:
-            return match.group(1).strip()
-
-        lines = text.split('\n')
-        for line in lines:
-            if 'profile' in line.lower():
-                profile_match = re.search(r'([A-Z0-9]+[A-Z]-[A-Z0-9]+)', line, re.IGNORECASE)
-                if profile_match:
-                    return profile_match.group(1).strip()
-
-        return ""
+        matches = re.finditer(profile_pattern, text, re.IGNORECASE)
+        
+        for match in matches:
+            profile = match.group(1).strip()
+            if profile and profile not in found_profiles:
+                found_profiles.append(profile)
+        
+        # Nếu chưa đủ 2 profile, tìm thêm theo pattern khác
+        if len(found_profiles) < 2:
+            lines = text.split('\n')
+            for line in lines:
+                if 'profile' in line.lower():
+                    profile_match = re.search(r'([A-Z0-9]+[A-Z]-[A-Z0-9]+)', line, re.IGNORECASE)
+                    if profile_match:
+                        profile = profile_match.group(1).strip()
+                        if profile and profile not in found_profiles:
+                            found_profiles.append(profile)
+                            if len(found_profiles) >= 2:
+                                break
+        
+        # Trả về tối đa 2 profile
+        profile_1 = found_profiles[0] if len(found_profiles) >= 1 else ""
+        profile_2 = found_profiles[1] if len(found_profiles) >= 2 else ""
+        
+        return profile_1, profile_2
+        
     except Exception as e:
-        return ""
-
-# [Include all number extraction functions]
+        return "", ""
 
 def determine_preferred_font_with_frequency_3(all_fonts, digit_chars):
     """Xác định font ưu tiên - ƯU TIÊN F2/F3, FALLBACK CHO FONT CÓ FREQUENCY = 3"""
@@ -1498,10 +1502,10 @@ def process_character_group_for_all_numbers_with_decimals(group):
 
 def create_dimension_summary_with_score_priority(df, df_all_numbers):
     """
-    *** CẬP NHẬT: Chỉ sử dụng số từ group được chọn, không lấy từ tất cả số ***
+    *** CẬP NHẬT: Thêm cột Profile 2 ***
     """
     if len(df) == 0:
-        return pd.DataFrame(columns=["Drawing#", "Length (mm)", "Width (mm)", "Height (mm)", "Laminate", "FOIL", "EDGEBAND", "Profile"])
+        return pd.DataFrame(columns=["Drawing#", "Length (mm)", "Width (mm)", "Height (mm)", "Laminate", "FOIL", "EDGEBAND", "Profile", "Profile 2"])
 
     grain_orientation = ""
     selected_numbers = []
@@ -1609,6 +1613,7 @@ def create_dimension_summary_with_score_priority(df, df_all_numbers):
     drawing_name = filename.replace('.pdf', '') if filename.endswith('.pdf') else filename
 
     profile_info = df.iloc[0]['Profile'] if 'Profile' in df.columns else ""
+    profile_2_info = df.iloc[0]['Profile 2'] if 'Profile 2' in df.columns else ""  # *** NEW ***
     foil_info = df.iloc[0]['FOIL'] if 'FOIL' in df.columns else ""
     edgeband_info = df.iloc[0]['EDGEBAND'] if 'EDGEBAND' in df.columns else ""
     laminate_info = df.iloc[0]['Laminate'] if 'Laminate' in df.columns else ""
@@ -1621,7 +1626,8 @@ def create_dimension_summary_with_score_priority(df, df_all_numbers):
         "Laminate": [laminate_info],
         "FOIL": [foil_info],
         "EDGEBAND": [edgeband_info],
-        "Profile": [profile_info]
+        "Profile": [profile_info],
+        "Profile 2": [profile_2_info]  # *** NEW COLUMN ***
     })
 
     return result_df
@@ -1673,8 +1679,8 @@ def main():
                     # *** CHỈ XỬ LÝ TRANG ĐẦU TIÊN ***
                     page = pdf.pages[0]
                     
-                    # Trích xuất thông tin profile
-                    profile_info = extract_profile_from_page(page)
+                    # *** CẬP NHẬT: Trích xuất 2 profile ***
+                    profile_info, profile_2_info = extract_profile_from_page(page)
                     
                     # Trích xuất thông tin FOIL classification và detail
                     foil_classification, foil_detail = extract_foil_classification_with_detail(page)
@@ -1707,6 +1713,7 @@ def main():
                             "Orientation": orientation,
                             "Number_Int": number,
                             "Profile": profile_info,
+                            "Profile 2": profile_2_info,  # *** NEW COLUMN ***
                             "FOIL": foil_classification,
                             "EDGEBAND": edgeband_classification,
                             "Laminate": laminate_classification,  # *** SỬ DỤNG LOGIC MỚI - ĐỂ TRỐNG NẾU CHỈ CÓ 1 KEYWORD ***
@@ -1812,7 +1819,7 @@ def main():
                     summary_results.append(summary)
                 
                 # Kết hợp tất cả kết quả
-                final_summary = pd.concat(summary_results, ignore_index=True) if summary_results else pd.DataFrame(columns=["Drawing#", "Length (mm)", "Width (mm)", "Height (mm)", "Laminate", "FOIL", "EDGEBAND", "Profile"])
+                final_summary = pd.concat(summary_results, ignore_index=True) if summary_results else pd.DataFrame(columns=["Drawing#", "Length (mm)", "Width (mm)", "Height (mm)", "Laminate", "FOIL", "EDGEBAND", "Profile", "Profile 2"])
                 
                 # *** CHỈ HIỂN THỊ BẢNG CHÍNH ***
                 st.markdown("---")
@@ -1841,7 +1848,7 @@ def main():
                 st.warning("No data to display")
                 
                 # Display empty table
-                empty_main = pd.DataFrame(columns=["Drawing#", "Length (mm)", "Width (mm)", "Height (mm)", "Laminate", "FOIL", "EDGEBAND", "Profile"])
+                empty_main = pd.DataFrame(columns=["Drawing#", "Length (mm)", "Width (mm)", "Height (mm)", "Laminate", "FOIL", "EDGEBAND", "Profile", "Profile 2"])
                 st.dataframe(empty_main, use_container_width=True)
 
 if __name__ == "__main__":
