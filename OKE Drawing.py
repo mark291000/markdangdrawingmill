@@ -894,71 +894,32 @@ def extract_foil_classification_with_detail(page):
         if not text:
             return "", ""
 
-         text_upper = text.upper()
-    
-    # Tìm pattern số trong ngoặc cho LONG và SHORT EDGES
-    import re
-    
-    # Pattern tìm kiếm: (số) LONG & (số) SHORT EDGES hoặc (số) SHORT EDGE
-    long_pattern = r'\((\d+)\)\s*LONG'
-    short_pattern = r'\((\d+)\)\s*SHORT'
-    
-    # Tìm tất cả số LONG
-    long_matches = re.findall(long_pattern, text_upper)
-    # Tìm tất cả số SHORT  
-    short_matches = re.findall(short_pattern, text_upper)
-    
-    # Tính tổng số LONG và SHORT
-    total_long = sum(int(match) for match in long_matches) if long_matches else 0
-    total_short = sum(int(match) for match in short_matches) if short_matches else 0
-    
-    # Nếu không tìm thấy pattern, fallback về logic cũ
-    if total_long == 0 and total_short == 0:
+        text_upper = text.upper()
+
         foil_count = text_upper.count('FOIL')
         liof_count = text_upper.count('LIOF')
-        
+
         detail_parts = []
         if foil_count > 0:
             detail_parts.append(f"{foil_count} FOIL")
         if liof_count > 0:
             detail_parts.append(f"{liof_count} LIOF")
-        
+
         detail = ", ".join(detail_parts) if detail_parts else ""
-        
+
         num_long = min(foil_count, 2)
         num_short = min(liof_count, 2)
-        
+
         classification = ""
         if num_long > 0:
             classification += f"{num_long}L"
         if num_short > 0:
             classification += f"{num_short}S"
-            
-        return classification if classification else "", detail
-    
-    # Logic mới: sử dụng số từ pattern
-    detail_parts = []
-    if total_long > 0:
-        detail_parts.append(f"({total_long}) LONG from pattern")
-    if total_short > 0:
-        detail_parts.append(f"({total_short}) SHORT from pattern")
-        
-    detail = ", ".join(detail_parts) if detail_parts else ""
-    
-    # Giới hạn tối đa 2 cho mỗi loại
-    num_long = min(total_long, 2)
-    num_short = min(total_short, 2)
-    
-    classification = ""
-    if num_long > 0:
-        classification += f"{num_long}L"
-    if num_short > 0:
-        classification += f"{num_short}S"
-        
-    return classification if classification else "", detail
 
-except Exception as e:
-    return "", ""
+        return classification if classification else "", detail
+
+    except Exception as e:
+        return "", ""
 
 def extract_edgeband_classification_with_detail(page):
     """Đếm EDGEBAND/DNABEGDE từ text đơn giản"""
@@ -995,11 +956,11 @@ def extract_edgeband_classification_with_detail(page):
         return "", ""
 
 def extract_profile_from_page(page):
-    """Trích xuất thông tin profile từ trang PDF - CẬP NHẬT: Tìm tối đa 2 profile khác nhau"""
+    """Trích xuất thông tin profile từ trang PDF - CẬP NHẬT: Tìm tối đa 3 profile khác nhau"""
     try:
         text = page.extract_text()
         if not text:
-            return "", ""
+            return "", "", ""
 
         found_profiles = []
         
@@ -1012,8 +973,8 @@ def extract_profile_from_page(page):
             if profile and profile not in found_profiles:
                 found_profiles.append(profile)
         
-        # Nếu chưa đủ 2 profile, tìm thêm theo pattern khác
-        if len(found_profiles) < 2:
+        # Nếu chưa đủ 3 profile, tìm thêm theo pattern khác
+        if len(found_profiles) < 3:
             lines = text.split('\n')
             for line in lines:
                 if 'profile' in line.lower():
@@ -1022,17 +983,18 @@ def extract_profile_from_page(page):
                         profile = profile_match.group(1).strip()
                         if profile and profile not in found_profiles:
                             found_profiles.append(profile)
-                            if len(found_profiles) >= 2:
+                            if len(found_profiles) >= 3:
                                 break
         
-        # Trả về tối đa 2 profile
+        # Trả về tối đa 3 profile
         profile_1 = found_profiles[0] if len(found_profiles) >= 1 else ""
         profile_2 = found_profiles[1] if len(found_profiles) >= 2 else ""
+        profile_3 = found_profiles[2] if len(found_profiles) >= 3 else ""
         
-        return profile_1, profile_2
+        return profile_1, profile_2, profile_3
         
     except Exception as e:
-        return "", ""
+        return "", "", ""
 
 def determine_preferred_font_with_frequency_3(all_fonts, digit_chars):
     """Xác định font ưu tiên - ƯU TIÊN F2/F3, FALLBACK CHO FONT CÓ FREQUENCY = 3"""
@@ -1541,10 +1503,10 @@ def process_character_group_for_all_numbers_with_decimals(group):
 
 def create_dimension_summary_with_score_priority(df, df_all_numbers):
     """
-    *** CẬP NHẬT: Thêm cột Profile 2 ***
+    *** CẬP NHẬT: Thêm cột Profile 3 ***
     """
     if len(df) == 0:
-        return pd.DataFrame(columns=["Drawing#", "Length (mm)", "Width (mm)", "Height (mm)", "Laminate", "FOIL", "EDGEBAND", "Profile", "Profile 2"])
+        return pd.DataFrame(columns=["Drawing#", "Length (mm)", "Width (mm)", "Height (mm)", "Laminate", "FOIL", "EDGEBAND", "Profile", "Profile 2", "Profile 3"])
 
     grain_orientation = ""
     selected_numbers = []
@@ -1652,7 +1614,8 @@ def create_dimension_summary_with_score_priority(df, df_all_numbers):
     drawing_name = filename.replace('.pdf', '') if filename.endswith('.pdf') else filename
 
     profile_info = df.iloc[0]['Profile'] if 'Profile' in df.columns else ""
-    profile_2_info = df.iloc[0]['Profile 2'] if 'Profile 2' in df.columns else ""  # *** NEW ***
+    profile_2_info = df.iloc[0]['Profile 2'] if 'Profile 2' in df.columns else ""
+    profile_3_info = df.iloc[0]['Profile 3'] if 'Profile 3' in df.columns else ""  # *** NEW ***
     foil_info = df.iloc[0]['FOIL'] if 'FOIL' in df.columns else ""
     edgeband_info = df.iloc[0]['EDGEBAND'] if 'EDGEBAND' in df.columns else ""
     laminate_info = df.iloc[0]['Laminate'] if 'Laminate' in df.columns else ""
@@ -1666,16 +1629,25 @@ def create_dimension_summary_with_score_priority(df, df_all_numbers):
         "FOIL": [foil_info],
         "EDGEBAND": [edgeband_info],
         "Profile": [profile_info],
-        "Profile 2": [profile_2_info]  # *** NEW COLUMN ***
+        "Profile 2": [profile_2_info],
+        "Profile 3": [profile_3_info]  # *** NEW COLUMN ***
     })
 
     return result_df
 
 # =============================================================================
-# STREAMLIT APP MAIN - SIMPLIFIED VERSION WITH OPENPYXL
+# STREAMLIT APP MAIN - SIMPLIFIED VERSION WITH OPENPYXL - MỞ RỘNG KHU VỰC HIỂN THỊ
 # =============================================================================
 
 def main():
+    # *** MỞ RỘNG KHU VỰC HIỂN THỊ ***
+    st.set_page_config(
+        page_title="PDF Number Extraction Tool",
+        page_icon="🔍",
+        layout="wide",  # Sử dụng wide layout
+        initial_sidebar_state="collapsed"
+    )
+    
     st.title("🔍 PDF Number Extraction Tool")
     st.markdown("---")
     
@@ -1718,8 +1690,8 @@ def main():
                     # *** CHỈ XỬ LÝ TRANG ĐẦU TIÊN ***
                     page = pdf.pages[0]
                     
-                    # *** CẬP NHẬT: Trích xuất 2 profile ***
-                    profile_info, profile_2_info = extract_profile_from_page(page)
+                    # *** CẬP NHẬT: Trích xuất 3 profile ***
+                    profile_info, profile_2_info, profile_3_info = extract_profile_from_page(page)
                     
                     # Trích xuất thông tin FOIL classification và detail
                     foil_classification, foil_detail = extract_foil_classification_with_detail(page)
@@ -1752,7 +1724,8 @@ def main():
                             "Orientation": orientation,
                             "Number_Int": number,
                             "Profile": profile_info,
-                            "Profile 2": profile_2_info,  # *** NEW COLUMN ***
+                            "Profile 2": profile_2_info,
+                            "Profile 3": profile_3_info,  # *** NEW COLUMN ***
                             "FOIL": foil_classification,
                             "EDGEBAND": edgeband_classification,
                             "Laminate": laminate_classification,  # *** SỬ DỤNG LOGIC MỚI - ĐỂ TRỐNG NẾU CHỈ CÓ 1 KEYWORD ***
@@ -1858,13 +1831,19 @@ def main():
                     summary_results.append(summary)
                 
                 # Kết hợp tất cả kết quả
-                final_summary = pd.concat(summary_results, ignore_index=True) if summary_results else pd.DataFrame(columns=["Drawing#", "Length (mm)", "Width (mm)", "Height (mm)", "Laminate", "FOIL", "EDGEBAND", "Profile", "Profile 2"])
+                final_summary = pd.concat(summary_results, ignore_index=True) if summary_results else pd.DataFrame(columns=["Drawing#", "Length (mm)", "Width (mm)", "Height (mm)", "Laminate", "FOIL", "EDGEBAND", "Profile", "Profile 2", "Profile 3"])
                 
-                # *** CHỈ HIỂN THỊ BẢNG CHÍNH ***
+                # *** CHỈ HIỂN THỊ BẢNG CHÍNH VỚI KHU VỰC MỞ RỘNG ***
                 st.markdown("---")
                 st.markdown("## 📊 Results")
                 
-                st.dataframe(final_summary, use_container_width=True)
+                # *** SỬ DỤNG CONTAINER ĐỂ MỞ RỘNG HIỂN THỊ ***
+                with st.container():
+                    st.dataframe(
+                        final_summary, 
+                        use_container_width=True,
+                        height=400  # Thiết lập chiều cao cố định
+                    )
                 
                 # *** DOWNLOAD BUTTON CHO EXCEL - SỬ DỤNG OPENPYXL ***
                 st.markdown("---")
@@ -1886,10 +1865,14 @@ def main():
             else:
                 st.warning("No data to display")
                 
-                # Display empty table
-                empty_main = pd.DataFrame(columns=["Drawing#", "Length (mm)", "Width (mm)", "Height (mm)", "Laminate", "FOIL", "EDGEBAND", "Profile", "Profile 2"])
-                st.dataframe(empty_main, use_container_width=True)
+                # Display empty table with expanded view
+                empty_main = pd.DataFrame(columns=["Drawing#", "Length (mm)", "Width (mm)", "Height (mm)", "Laminate", "FOIL", "EDGEBAND", "Profile", "Profile 2", "Profile 3"])
+                with st.container():
+                    st.dataframe(
+                        empty_main, 
+                        use_container_width=True,
+                        height=400
+                    )
 
 if __name__ == "__main__":
     main()
-
