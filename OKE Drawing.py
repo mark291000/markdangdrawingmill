@@ -888,28 +888,67 @@ def check_uniform_metrics_for_has_hv_mix(group_data):
         return False
 
 def extract_foil_classification_with_detail(page):
-    """Đếm FOIL/LIOF từ text đơn giản"""
+    """
+    CẬP NHẬT: Đếm FOIL/LIOF từ text với logic mới - tìm số trong ngoặc từ pattern
+    """
     try:
         text = page.extract_text()
         if not text:
             return "", ""
 
         text_upper = text.upper()
-
+        
+        # Tìm pattern số trong ngoặc cho LONG và SHORT EDGES
+        # Pattern tìm kiếm: (số) LONG & (số) SHORT EDGES hoặc (số) SHORT EDGE
+        long_pattern = r'\((\d+)\)\s*LONG'
+        short_pattern = r'\((\d+)\)\s*SHORT'
+        
+        # Tìm tất cả số LONG
+        long_matches = re.findall(long_pattern, text_upper)
+        # Tìm tất cả số SHORT  
+        short_matches = re.findall(short_pattern, text_upper)
+        
+        # Tính tổng số LONG và SHORT
+        total_long = sum(int(match) for match in long_matches) if long_matches else 0
+        total_short = sum(int(match) for match in short_matches) if short_matches else 0
+        
+        # Nếu tìm thấy pattern, sử dụng logic mới
+        if total_long > 0 or total_short > 0:
+            detail_parts = []
+            if total_long > 0:
+                detail_parts.append(f"({total_long}) LONG from pattern")
+            if total_short > 0:
+                detail_parts.append(f"({total_short}) SHORT from pattern")
+                
+            detail = ", ".join(detail_parts) if detail_parts else ""
+            
+            # Giới hạn tối đa 2 cho mỗi loại
+            num_long = min(total_long, 2)
+            num_short = min(total_short, 2)
+            
+            classification = ""
+            if num_long > 0:
+                classification += f"{num_long}L"
+            if num_short > 0:
+                classification += f"{num_short}S"
+                
+            return classification if classification else "", detail
+        
+        # Nếu không tìm thấy pattern, fallback về logic cũ
         foil_count = text_upper.count('FOIL')
         liof_count = text_upper.count('LIOF')
-
+        
         detail_parts = []
         if foil_count > 0:
             detail_parts.append(f"{foil_count} FOIL")
         if liof_count > 0:
             detail_parts.append(f"{liof_count} LIOF")
-
+        
         detail = ", ".join(detail_parts) if detail_parts else ""
-
+        
         num_long = min(foil_count, 2)
         num_short = min(liof_count, 2)
-
+        
         classification = ""
         if num_long > 0:
             classification += f"{num_long}L"
