@@ -894,32 +894,71 @@ def extract_foil_classification_with_detail(page):
         if not text:
             return "", ""
 
-        text_upper = text.upper()
-
+         text_upper = text.upper()
+    
+    # Tìm pattern số trong ngoặc cho LONG và SHORT EDGES
+    import re
+    
+    # Pattern tìm kiếm: (số) LONG & (số) SHORT EDGES hoặc (số) SHORT EDGE
+    long_pattern = r'\((\d+)\)\s*LONG'
+    short_pattern = r'\((\d+)\)\s*SHORT'
+    
+    # Tìm tất cả số LONG
+    long_matches = re.findall(long_pattern, text_upper)
+    # Tìm tất cả số SHORT  
+    short_matches = re.findall(short_pattern, text_upper)
+    
+    # Tính tổng số LONG và SHORT
+    total_long = sum(int(match) for match in long_matches) if long_matches else 0
+    total_short = sum(int(match) for match in short_matches) if short_matches else 0
+    
+    # Nếu không tìm thấy pattern, fallback về logic cũ
+    if total_long == 0 and total_short == 0:
         foil_count = text_upper.count('FOIL')
         liof_count = text_upper.count('LIOF')
-
+        
         detail_parts = []
         if foil_count > 0:
             detail_parts.append(f"{foil_count} FOIL")
         if liof_count > 0:
             detail_parts.append(f"{liof_count} LIOF")
-
+        
         detail = ", ".join(detail_parts) if detail_parts else ""
-
+        
         num_long = min(foil_count, 2)
         num_short = min(liof_count, 2)
-
+        
         classification = ""
         if num_long > 0:
             classification += f"{num_long}L"
         if num_short > 0:
             classification += f"{num_short}S"
-
+            
         return classification if classification else "", detail
+    
+    # Logic mới: sử dụng số từ pattern
+    detail_parts = []
+    if total_long > 0:
+        detail_parts.append(f"({total_long}) LONG from pattern")
+    if total_short > 0:
+        detail_parts.append(f"({total_short}) SHORT from pattern")
+        
+    detail = ", ".join(detail_parts) if detail_parts else ""
+    
+    # Giới hạn tối đa 2 cho mỗi loại
+    num_long = min(total_long, 2)
+    num_short = min(total_short, 2)
+    
+    classification = ""
+    if num_long > 0:
+        classification += f"{num_long}L"
+    if num_short > 0:
+        classification += f"{num_short}S"
+        
+    return classification if classification else "", detail
 
-    except Exception as e:
-        return "", ""
+except Exception as e:
+    return "", ""
 
 def extract_edgeband_classification_with_detail(page):
     """Đếm EDGEBAND/DNABEGDE từ text đơn giản"""
@@ -1853,3 +1892,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
