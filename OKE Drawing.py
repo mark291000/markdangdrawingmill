@@ -18,6 +18,41 @@ def reverse_number_string(number_string):
     """Đảo ngược chuỗi số"""
     return number_string[::-1]
 
+def is_number_in_filename(number, filename):
+    """
+    *** MỚI: Kiểm tra xem số có xuất hiện trong tên file không ***
+    
+    Args:
+        number (int/float): Số cần kiểm tra
+        filename (str): Tên file (có thể có hoặc không có extension)
+    
+    Returns:
+        bool: True nếu số xuất hiện trong tên file, False nếu không
+    
+    Examples:
+        >>> is_number_in_filename(921, "4009214.pdf")
+        True
+        >>> is_number_in_filename(150, "4009214.pdf")
+        False
+        >>> is_number_in_filename(123, "ABC123XYZ.pdf")
+        True
+    """
+    try:
+        # Chuyển số thành chuỗi
+        number_str = str(int(number)) if isinstance(number, (int, float)) and number == int(number) else str(number)
+        
+        # Loại bỏ extension và chuyển thành chữ hoa để so sánh
+        base_name = filename.upper()
+        if base_name.endswith('.PDF'):
+            base_name = base_name[:-4]
+        
+        # Kiểm tra số có trong tên file không
+        return number_str in base_name
+    
+    except Exception as e:
+        # Nếu có lỗi, mặc định không lọc
+        return False
+
 def get_font_weight(char):
     """Trích xuất độ đậm từ thông tin font của ký tự"""
     try:
@@ -1125,8 +1160,17 @@ def get_font_priority(fontname):
     else:
         return 0  # Không hợp lệ
 
-def extract_numbers_and_decimals_from_chars(page):
-    """METHOD: Trích xuất số và số thập phân - CẬP NHẬT LOGIC FONT FREQUENCY"""
+def extract_numbers_and_decimals_from_chars(page, filename):
+    """
+    *** CẬP NHẬT: METHOD trích xuất số và số thập phân - LỌC SỐ CÓ TRONG TÊN FILE ***
+    
+    Args:
+        page: Page object từ pdfplumber
+        filename (str): Tên file PDF
+    
+    Returns:
+        tuple: (numbers, orientations, font_info)
+    """
     numbers = []
     orientations = {}
     font_info = {}
@@ -1154,6 +1198,11 @@ def extract_numbers_and_decimals_from_chars(page):
                         continue
 
                     num_value = int(group[0]['text'])
+                    
+                    # *** KIỂM TRA SỐ CÓ TRONG TÊN FILE ***
+                    if is_number_in_filename(num_value, filename):
+                        continue
+                    
                     fontname = group[0].get('fontname', 'Unknown')
                     font_weight = get_font_weight(group[0])
 
@@ -1173,6 +1222,10 @@ def extract_numbers_and_decimals_from_chars(page):
                 result = process_character_group_with_decimals(group, extracted_numbers, preferred_font)
                 if result:
                     number, orientation, is_decimal = result
+                    
+                    # *** KIỂM TRA SỐ CÓ TRONG TÊN FILE ***
+                    if is_number_in_filename(number, filename):
+                        continue
 
                     if is_decimal:
                         numbers.append(number)
@@ -1331,8 +1384,17 @@ def process_character_group_with_decimals(group, extracted_numbers, preferred_fo
     except Exception:
         return None
 
-def extract_all_valid_numbers_from_page(page):
-    """BẢNG PHỤ: Trích xuất TẤT CẢ số hợp lệ - XOAY TẠI NGUỒN KHI TÍNH METRICS"""
+def extract_all_valid_numbers_from_page(page, filename):
+    """
+    *** CẬP NHẬT: BẢNG PHỤ - Trích xuất TẤT CẢ số hợp lệ - LỌC SỐ CÓ TRONG TÊN FILE ***
+    
+    Args:
+        page: Page object từ pdfplumber
+        filename (str): Tên file PDF
+    
+    Returns:
+        list: Danh sách dictionary chứa thông tin số
+    """
     all_valid_numbers = []
 
     try:
@@ -1351,6 +1413,11 @@ def extract_all_valid_numbers_from_page(page):
                         continue
 
                     num_value = int(group[0]['text'])
+                    
+                    # *** KIỂM TRA SỐ CÓ TRONG TÊN FILE ***
+                    if is_number_in_filename(num_value, filename):
+                        continue
+                    
                     fontname = group[0].get('fontname', 'Unknown')
                     font_weight = get_font_weight(group[0])
                     x_pos = group[0]['x0']
@@ -1385,6 +1452,11 @@ def extract_all_valid_numbers_from_page(page):
                 result = process_character_group_for_all_numbers_with_decimals(group)
                 if result:
                     number, orientation, is_decimal = result
+                    
+                    # *** KIỂM TRA SỐ CÓ TRONG TÊN FILE ***
+                    if is_number_in_filename(number, filename):
+                        continue
+                    
                     if (is_decimal and 0.1 <= number <= 3500.0) or (not is_decimal and 0 < number <= 3500):
                         fonts = [ch.get("fontname", "Unknown") for ch in group]
                         fontname = Counter(fonts).most_common(1)[0][0] if fonts else "Unknown"
@@ -1741,11 +1813,11 @@ def main():
                     # *** CẬP NHẬT: Trích xuất thông tin LAMINATE classification với logic mới - ĐỂ TRỐNG NẾU CHỈ CÓ 1 KEYWORD ***
                     laminate_classification, laminate_detail = extract_laminate_classification_with_detail(page)
                     
-                    # Sử dụng phương pháp trích xuất mới với font frequency = 3 (CHO BẢNG CHÍNH)
-                    char_numbers, char_orientations, font_info = extract_numbers_and_decimals_from_chars(page)
+                    # *** TRUYỀN FILENAME VÀO HÀM TRÍCH XUẤT ***
+                    char_numbers, char_orientations, font_info = extract_numbers_and_decimals_from_chars(page, filename)
                     
-                    # Trích xuất TẤT CẢ số hợp lệ (CHO BẢNG PHỤ)
-                    all_valid_numbers = extract_all_valid_numbers_from_page(page)
+                    # *** TRUYỀN FILENAME VÀO HÀM TRÍCH XUẤT TẤT CẢ SỐ ***
+                    all_valid_numbers = extract_all_valid_numbers_from_page(page, filename)
                     
                     # Xử lý kết quả cho BẢNG CHÍNH
                     file_main_results = []
