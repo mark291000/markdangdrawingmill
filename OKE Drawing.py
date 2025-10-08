@@ -1614,10 +1614,14 @@ def process_character_group_for_all_numbers_with_decimals(group):
 
 def create_dimension_summary_with_score_priority(df, df_all_numbers):
     """
-    *** CẬP NHẬT: Thêm cột Profile 3 ***
+    *** CẬP NHẬT: Logic mới cho nhóm ≥3 số ***
+    - Số lớn nhất → Length
+    - Số nhỏ nhất → Height
+    - Số gần nhỏ nhất (thứ 2 từ dưới lên) → Width
     """
     if len(df) == 0:
-        return pd.DataFrame(columns=["Drawing#", "Length (mm)", "Width (mm)", "Height (mm)", "Laminate", "FOIL", "EDGEBAND", "Profile", "Profile 2", "Profile 3"])
+        return pd.DataFrame(columns=["Drawing#", "Length (mm)", "Width (mm)", "Height (mm)", 
+                                    "Laminate", "FOIL", "EDGEBAND", "Profile", "Profile 2", "Profile 3"])
 
     grain_orientation = ""
     selected_numbers = []
@@ -1642,7 +1646,6 @@ def create_dimension_summary_with_score_priority(df, df_all_numbers):
                     if valid_grains:
                         grain_counts = Counter(valid_grains)
                         grain_orientation = grain_counts.most_common(1)[0][0]
-
             else:
                 all_numbers = df['Number_Int'].tolist()
                 selected_numbers = all_numbers
@@ -1658,13 +1661,15 @@ def create_dimension_summary_with_score_priority(df, df_all_numbers):
     height_number = ""
 
     number_counts = Counter(selected_numbers)
-    unique_numbers = sorted(list(set(selected_numbers)), reverse=True)
+    unique_numbers = sorted(list(set(selected_numbers)), reverse=True)  # Sắp xếp giảm dần
 
+    # CASE 1: Chỉ có 1 số duy nhất
     if len(unique_numbers) == 1:
         length_number = str(unique_numbers[0])
         width_number = str(unique_numbers[0])
         height_number = str(unique_numbers[0])
 
+    # CASE 2: Có đúng 2 số khác nhau
     elif len(unique_numbers) == 2:
         larger_num = unique_numbers[0]
         smaller_num = unique_numbers[1]
@@ -1685,48 +1690,21 @@ def create_dimension_summary_with_score_priority(df, df_all_numbers):
             width_number = str(smaller_num)
             height_number = str(smaller_num)
 
+    # CASE 3: Có 3 số trở lên
     elif len(unique_numbers) >= 3:
-        if grain_orientation in ['Horizontal', 'Vertical']:
-            length_number = str(unique_numbers[0])
-            width_number = str(unique_numbers[1])
-            height_number = str(unique_numbers[2])
-            
-        else:
-            repeated_numbers = [num for num, count in number_counts.items() if count >= 2]
-            
-            if repeated_numbers:
-                main_repeated = max(repeated_numbers)
-                repeated_count = number_counts[main_repeated]
-                
-                if main_repeated == unique_numbers[0]:
-                    if repeated_count >= 2:
-                        length_number = str(main_repeated)
-                        width_number = str(main_repeated)
-                        height_number = str(unique_numbers[1])
-                    else:
-                        length_number = str(unique_numbers[0])
-                        width_number = str(unique_numbers[1])
-                        height_number = str(unique_numbers[2])
-                else:
-                    length_number = str(unique_numbers[0])
-                    width_number = str(main_repeated)
-                    height_number = str(main_repeated)
-            else:
-                if len(unique_numbers) == 5:
-                    length_number = str(unique_numbers[0])
-                    width_number = str(unique_numbers[-2])
-                    height_number = str(unique_numbers[-1])
-                else:
-                    length_number = str(unique_numbers[0])
-                    width_number = str(unique_numbers[1])
-                    height_number = str(unique_numbers[-1])
+        # *** LOGIC MỚI ***
+        # unique_numbers đã được sắp xếp giảm dần: [lớn nhất, ..., nhỏ nhất]
+        length_number = str(unique_numbers[0])      # Số lớn nhất
+        height_number = str(unique_numbers[-1])     # Số nhỏ nhất
+        width_number = str(unique_numbers[-2])      # Số gần nhỏ nhất (thứ 2 từ dưới lên)
 
+    # Trích xuất metadata
     filename = df.iloc[0]['File']
     drawing_name = filename.replace('.pdf', '') if filename.endswith('.pdf') else filename
 
     profile_info = df.iloc[0]['Profile'] if 'Profile' in df.columns else ""
     profile_2_info = df.iloc[0]['Profile 2'] if 'Profile 2' in df.columns else ""
-    profile_3_info = df.iloc[0]['Profile 3'] if 'Profile 3' in df.columns else ""  # *** NEW ***
+    profile_3_info = df.iloc[0]['Profile 3'] if 'Profile 3' in df.columns else ""
     foil_info = df.iloc[0]['FOIL'] if 'FOIL' in df.columns else ""
     edgeband_info = df.iloc[0]['EDGEBAND'] if 'EDGEBAND' in df.columns else ""
     laminate_info = df.iloc[0]['Laminate'] if 'Laminate' in df.columns else ""
@@ -1741,7 +1719,7 @@ def create_dimension_summary_with_score_priority(df, df_all_numbers):
         "EDGEBAND": [edgeband_info],
         "Profile": [profile_info],
         "Profile 2": [profile_2_info],
-        "Profile 3": [profile_3_info]  # *** NEW COLUMN ***
+        "Profile 3": [profile_3_info]
     })
 
     return result_df
